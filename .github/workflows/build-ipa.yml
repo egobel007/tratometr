@@ -1,0 +1,39 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Build app (unsigned)
+        run: |
+          xcodebuild -project Tratometr.xcodeproj -target Tratometr -sdk iphoneos -configuration Release \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build > build.log 2>&1 || true
+          grep -E "error:|BUILD SUCCEEDED|BUILD FAILED" build.log || true
+          test -d build/Release-iphoneos/Tratometr.app
+
+      - name: Package IPA
+        run: |
+          mkdir Payload
+          cp -R build/Release-iphoneos/Tratometr.app Payload/
+          zip -qry Tratometr.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tratometr-ipa
+          path: Tratometr.ipa
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
