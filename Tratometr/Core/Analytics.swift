@@ -48,7 +48,7 @@ struct Insight: Identifiable {
         case .good: return .good
         case .warn: return .warn
         case .bad: return .bad
-        case .neutral: return .muted
+        case .neutral: return .violet
         }
     }
 }
@@ -149,7 +149,7 @@ enum Stats {
             }
             if let down = diffs.filter({ $0.diff < 0 }).min(by: { $0.diff < $1.diff }), -down.diff > total * 0.04 {
                 out.append(Insight(tone: .good, symbol: "arrow.down.right",
-                                   text: "**\(down.cat.name)**: на \(f(-down.diff)) меньше, чем по \(period.prevPhrase). Хорошо держишься."))
+                                   text: "**\(down.cat.name)**: на \(f(-down.diff)) меньше, чем по \(period.prevPhrase). Так держать!"))
             }
         }
 
@@ -184,7 +184,7 @@ enum Stats {
                 }
             } else {
                 out.append(Insight(tone: .neutral, symbol: "flag",
-                                   text: "Прогноз на месяц при таком темпе: **\(f(forecast))**. Задай бюджет в настройках, и я покажу, сколько можно тратить в день."))
+                                   text: "Прогноз трат на месяц при таком темпе: **\(f(forecast))**. Задай бюджет в настройках, и я покажу, сколько можно тратить в день."))
             }
         }
 
@@ -221,7 +221,7 @@ enum Stats {
         let smalls = current.filter { $0.amount <= small }
         return """
         Период: \(label(period, offset: offset)) (\(period.title.lowercased())), валюта \(currency).
-        Итого: \(f(total(current))). Прошлый такой же период: \(f(total(previous))).
+        Итого трат: \(f(total(current))). Прошлый такой же период: \(f(total(previous))).
         По категориям (сейчас / прошлый период):
         \(lines)
         Крупнейшие траты: \(big.isEmpty ? "нет" : big).
@@ -231,7 +231,93 @@ enum Stats {
     }
 }
 
-// MARK: - Demo data shown until the first real expense
+// MARK: - Balance: money in, money out
+
+enum BalancePeriod: String, CaseIterable, Identifiable {
+    case month, year, all
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .month: return "Месяц"
+        case .year: return "Год"
+        case .all: return "Всё время"
+        }
+    }
+}
+
+struct MonthFlow: Identifiable {
+    let month: Date
+    let income: Double
+    let spent: Double
+    var net: Double { income - spent }
+    var id: Date { month }
+}
+
+struct SourceTotal: Identifiable {
+    let source: IncomeSource
+    let amount: Double
+    let count: Int
+    var id: String { source.rawValue }
+}
+
+enum Flow {
+    static func interval(_ p: BalancePeriod, offset: Int, earliest: Date?) -> DateInterval {
+        let cal = RuDate.cal
+        let now = Date()
+        switch p {
+        case .month:
+            return Stats.interval(.month, offset: offset)
+        case .year:
+            let y = cal.dateInterval(of: .year, for: now)!
+            let start = cal.date(byAdding: .year, value: offset, to: y.start)!
+            return DateInterval(start: start, end: cal.date(byAdding: .year, value: 1, to: start)!)
+        case .all:
+            let first = min(earliest ?? now, now)
+            let start = cal.dateInterval(of: .month, for: first)!.start
+            let end = cal.dateInterval(of: .month, for: now)!.end
+            return DateInterval(start: start, end: end)
+        }
+    }
+
+    static func label(_ p: BalancePeriod, offset: Int, earliest: Date?) -> String {
+        switch p {
+        case .month:
+            return Stats.label(.month, offset: offset)
+        case .year:
+            let y = RuDate.parts(interval(.year, offset: offset, earliest: nil).start).year
+            return offset == 0 ? "\(y), этот год" : "\(y) год"
+        case .all:
+            guard let e = earliest else { return "За всё время" }
+            let ep = RuDate.parts(e)
+            return "С \(RuDate.monthsGen[ep.month]) \(ep.year)"
+        }
+    }
+
+    /// Month-by-month flow inside an interval, never past the current month. Oldest first.
+    static func months(_ iv: DateInterval, spends: [SpendItem], incomes: [SpendItem]) -> [MonthFlow] {
+        let cal = RuDate.cal
+        let limit = cal.dateInterval(of: .month, for: Date())!.end
+        var out: [MonthFlow] = []
+        var m = iv.start
+        while m < iv.end && m < limit {
+            let next = cal.date(byAdding: .month, value: 1, to: m)!
+            let r = DateInterval(start: m, end: next)
+            out.append(MonthFlow(month: m,
+                                 income: Stats.total(Stats.filter(incomes, r)),
+                                 spent: Stats.total(Stats.filter(spends, r))))
+            m = next
+        }
+        return out
+    }
+
+    static func bySource(_ incomes: [SpendItem]) -> [SourceTotal] {
+        Dictionary(grouping: incomes, by: \.income)
+            .map { SourceTotal(source: $0.key, amount: Stats.total($0.value), count: $0.value.count) }
+            .sorted { $0.amount > $1.amount }
+    }
+}
+
+// MARK: - Demo data shown until the first real record
 
 enum DemoData {
     private struct RNG {
@@ -264,24 +350,32 @@ enum DemoData {
         let cal = RuDate.cal
         let now = Date()
         var out: [SpendItem] = []
-        for d in 0..<62 {
+        func add(_ amount: Double, _ cat: SpendCategory, _ note: String, _ date: Date, _ source: String = "voice") {
+            out.append(SpendItem(id: "demo\(out.count)", amount: money(amount), currency: currency, category: cat,
+                                 note: note, date: date, source: source))
+        }
+        func income(_ amount: Double, _ src: IncomeSource, _ note: String, _ date: Date) {
+            out.append(SpendItem(id: "demo\(out.count)", amount: money(amount), currency: currency, category: .other,
+                                 note: note, date: date, source: "voice", isIncome: true, income: src))
+        }
+        for d in 0..<75 {
             guard let day = cal.date(byAdding: .day, value: -d, to: cal.startOfDay(for: now)) else { continue }
             for t in templates {
                 guard rng.next() <= t.4 else { continue }
                 let date = day.addingTimeInterval((8 + rng.next() * 13) * 3600)
-                let amount = money(t.2 + (t.3 - t.2) * rng.next())
-                if date > now { continue }
-                out.append(SpendItem(id: "demo\(out.count)", amount: amount, currency: currency, category: t.0,
-                                     note: t.1, date: date, source: "voice"))
+                add(t.2 + (t.3 - t.2) * rng.next(), t.0, t.1, date)
             }
             let dom = cal.component(.day, from: day)
-            if dom == 10 {
-                out.append(SpendItem(id: "demo\(out.count)", amount: money(5200), currency: currency, category: .home,
-                                     note: "Коммуналка", date: day.addingTimeInterval(11 * 3600), source: "text"))
-            }
-            if dom == 3 {
-                out.append(SpendItem(id: "demo\(out.count)", amount: money(899), currency: currency, category: .subs,
-                                     note: "Подписки", date: day.addingTimeInterval(9 * 3600), source: "text"))
+            let noon = day.addingTimeInterval(12 * 3600)
+            switch dom {
+            case 1: add(35000, .home, "Аренда", noon, "text"); income(1200, .refund, "Кэшбэк", noon)
+            case 3: add(899, .subs, "Подписки", noon, "text")
+            case 5: income(40000, .salary, "Часть зарплаты", noon)
+            case 10: add(5200, .home, "Коммуналка", noon, "text")
+            case 15: income(60000, .salary, "Часть зарплаты", noon)
+            case 25: income(50000, .salary, "Остаток зарплаты", noon)
+            case 12 where d > 25: income(8000, .sale, "Продал велосипед", noon)
+            default: break
             }
         }
         return out.filter { $0.date <= now }.sorted { $0.date > $1.date }

@@ -48,13 +48,14 @@ float field(float3 p, float t, float amp) {
     float3 rd = normalize(float3(uv * 0.5, -1.0));
     float amp = 0.07 + energy * 0.16;
 
-    float3 c1 = float3(1.0, 0.76, 0.66);
-    float3 c2 = float3(0.72, 0.68, 1.0);
-    float3 c3 = float3(0.56, 0.90, 0.85);
+    float3 c1 = float3(1.0, 0.66, 0.36);
+    float3 c2 = float3(0.62, 0.50, 1.0);
+    float3 c3 = float3(0.30, 0.90, 0.76);
+    float3 c4 = float3(1.0, 0.45, 0.68);
 
     // soft halo around the sphere
     float r = length(uv);
-    float glowA = exp(-pow(max(r - 0.6, 0.0) * 3.2, 2.0)) * (0.22 + energy * 0.35) * (dark > 0.5 ? 1.4 : 1.0);
+    float glowA = exp(-pow(max(r - 0.6, 0.0) * 3.2, 2.0)) * (0.32 + energy * 0.4) * (dark > 0.5 ? 1.4 : 1.0);
     glowA = clamp(glowA, 0.0, 1.0);
     float3 glowC = mix(c1, c2, 0.5 + 0.5 * uv.y);
     glowC = mix(glowC, tint, tintAmt * 0.6);
@@ -98,6 +99,8 @@ float field(float3 p, float t, float amp) {
     float3 base = mix(c1, c2, smoothstep(-0.7, 0.8, n.y + (nn - 0.5) * 0.9));
     float sw = 0.5 + 0.5 * sin(nn * 5.0 + time * 0.55 + n.y * 2.2 + n.x * 1.4);
     base = mix(base, c3, sw * 0.5);
+    float pk = 0.5 + 0.5 * sin(nn * 3.7 - time * 0.4 + n.x * 2.6);
+    base = mix(base, c4, pk * 0.35);
     base = mix(base, tint, tintAmt * 0.65);
 
     float dif = max(dot(n, L), 0.0) * 0.32 + 0.72;

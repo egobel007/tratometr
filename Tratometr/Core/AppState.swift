@@ -1,12 +1,12 @@
 import SwiftUI
 
 enum ComposeStart: String, Identifiable {
-    case voice, text, scan, gallery
+    case voice, text, scan, gallery, income
     var id: String { rawValue }
 }
 
 enum AppTab {
-    case home, stats, history
+    case home, balance, stats, history
 }
 
 struct ToastMessage: Identifiable {
@@ -21,6 +21,7 @@ final class AppState: ObservableObject {
     @Published var showSettings = false
     @Published var toast: ToastMessage?
     @Published var mood: OrbMood = .idle
+    @Published var confetti = 0
 
     let orb = OrbEngine()
     let speech = SpeechRecognizer()
@@ -35,6 +36,10 @@ final class AppState: ObservableObject {
     func setMood(_ m: OrbMood) {
         mood = m
         orb.apply(m)
+    }
+
+    func go(_ t: AppTab) {
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { tab = t }
     }
 
     func showToast(_ text: String, undo: (() -> Void)? = nil) {

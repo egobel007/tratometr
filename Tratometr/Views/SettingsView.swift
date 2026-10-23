@@ -8,8 +8,10 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var context
     @AppStorage("currency") private var currency = "RUB"
     @AppStorage("budget") private var budget: Double = 0
+    @AppStorage("salary") private var salary: Double = 0
 
     @State private var budgetText = ""
+    @State private var salaryText = ""
     @State private var apiKey = ""
     @State private var confirmWipe = false
     @State private var csvURL: URL?
@@ -26,7 +28,19 @@ struct SettingsView: View {
                 } header: {
                     Text("Основная валюта")
                 } footer: {
-                    Text("Итоги и аналитика считаются в основной валюте. Траты в других валютах видны в истории.")
+                    Text("Итоги и аналитика считаются в основной валюте. Записи в других валютах видны в истории.")
+                }
+
+                Section {
+                    HStack {
+                        TextField("Например, 150 000", text: $salaryText)
+                            .keyboardType(.decimalPad)
+                        Text(CurrencyInfo.get(currency).symbol).foregroundStyle(Color.muted)
+                    }
+                } header: {
+                    Text("Зарплата в месяц")
+                } footer: {
+                    Text("Если зарплата приходит частями, во вкладке «Баланс» будет видно, сколько уже пришло и сколько ещё ждать.")
                 }
 
                 Section {
@@ -36,7 +50,7 @@ struct SettingsView: View {
                         Text(CurrencyInfo.get(currency).symbol).foregroundStyle(Color.muted)
                     }
                 } header: {
-                    Text("Бюджет на месяц")
+                    Text("Бюджет на траты в месяц")
                 } footer: {
                     Text("Покажу, сколько можно тратить в день, и дам прогноз на конец месяца. Оставь пустым, если бюджет не нужен.")
                 }
@@ -51,7 +65,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Claude, по желанию")
                 } footer: {
-                    Text("Без ключа всё работает прямо на телефоне: речь распознаёт iPhone, суммы и категории понимает встроенный разборщик, чеки читает камера. С ключом Claude точнее понимает сложные фразы и мятые чеки и пишет личный разбор трат. Ключ хранится в связке ключей iPhone, оплата по факту использования на console.anthropic.com.")
+                    Text("Без ключа всё работает прямо на телефоне. С ключом Claude точнее понимает сложные фразы и мятые чеки и пишет личный разбор трат. Ключ хранится в связке ключей iPhone, оплата по факту использования на console.anthropic.com.")
                 }
 
                 Section("Данные") {
@@ -61,16 +75,16 @@ struct SettingsView: View {
                         }
                     }
                     Button(role: .destructive) { confirmWipe = true } label: {
-                        Label("Удалить все траты", systemImage: "trash")
+                        Label("Удалить все записи", systemImage: "trash")
                     }
                     .disabled(items.isEmpty)
                 }
 
                 Section("Как пользоваться") {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Нажми на шар или на микрофон внизу и скажи как есть: «кофе 280, такси до работы 640, вчера Пятёрочка полторы тысячи». Через секунду тишины я сам всё разберу, останется проверить и нажать «Сохранить».")
-                        Text("Чек: кнопка с камерой, затем «Сфотографировать чек». Камера сама найдёт края и прочитает итог.")
-                        Text("Любую трату можно поправить или удалить, нажав на неё. В истории работает свайп влево.")
+                        Text("Нажми на шар или микрофон и скажи как есть: «кофе 280, такси 640, вчера Пятёрочка полторы тысячи». Поступления так же: «пришло 40 000, часть зарплаты», «продал велосипед за 15 тысяч».")
+                        Text("Чек: кнопка «Чек», затем «Сфотографировать чек». Камера сама найдёт края и прочитает итог.")
+                        Text("Любую запись можно поправить или удалить, нажав на неё. В истории работает свайп влево.")
                     }
                     .font(.footnote)
                     .foregroundStyle(Color.muted)
@@ -84,16 +98,17 @@ struct SettingsView: View {
                     Button("Готово") { persist(); dismiss() }
                 }
             }
-            .confirmationDialog("Удалить все траты? Это нельзя отменить.", isPresented: $confirmWipe, titleVisibility: .visible) {
+            .confirmationDialog("Удалить все траты и поступления? Это нельзя отменить.", isPresented: $confirmWipe, titleVisibility: .visible) {
                 Button("Удалить всё", role: .destructive) {
                     try? context.delete(model: Expense.self)
                     try? context.save()
-                    app.showToast("Все траты удалены")
+                    app.showToast("Все записи удалены")
                 }
             }
         }
         .onAppear {
             budgetText = budget > 0 ? Money.plain(budget) : ""
+            salaryText = salary > 0 ? Money.plain(salary) : ""
             apiKey = Keychain.load(Keys.claude) ?? ""
             csvURL = CSVExport.write(items)
         }
@@ -102,6 +117,7 @@ struct SettingsView: View {
 
     private func persist() {
         budget = Money.parse(budgetText.replacingOccurrences(of: " ", with: ""))
+        salary = Money.parse(salaryText.replacingOccurrences(of: " ", with: ""))
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         if key != (Keychain.load(Keys.claude) ?? "") {
             if key.isEmpty { Keychain.delete(Keys.claude) } else { Keychain.save(key, for: Keys.claude) }
@@ -112,11 +128,11 @@ struct SettingsView: View {
 enum CSVExport {
     static func write(_ items: [SpendItem]) -> URL? {
         guard !items.isEmpty else { return nil }
-        var rows = [["Дата", "Время", "Категория", "Описание", "Сумма", "Валюта", "Источник"]]
+        var rows = [["Дата", "Время", "Тип", "Категория", "Описание", "Сумма", "Валюта", "Источник"]]
         for e in items.sorted(by: { $0.date < $1.date }) {
             let source = e.source == "photo" ? "фото" : (e.source == "voice" ? "голос" : "текст")
-            rows.append([RuDate.iso(e.date), RuDate.time(e.date), e.category.name, e.note,
-                         Money.plain(e.amount), e.currency, source])
+            rows.append([RuDate.iso(e.date), RuDate.time(e.date), e.isIncome ? "Поступление" : "Трата",
+                         e.kindName, e.note, Money.plain(e.amount), e.currency, source])
         }
         let csv = "\u{FEFF}" + rows.map { r in
             r.map { "\"" + $0.replacingOccurrences(of: "\"", with: "\"\"") + "\"" }.joined(separator: ";")

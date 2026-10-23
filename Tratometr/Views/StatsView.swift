@@ -34,17 +34,7 @@ struct StatsView: View {
 
         ScrollView {
             VStack(spacing: 12) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Аналитика").eyebrow()
-                        Text("Куда ушли деньги")
-                            .font(.system(size: 24, weight: .semibold))
-                            .fontWidth(.expanded)
-                            .foregroundStyle(Color.ink)
-                    }
-                    Spacer()
-                }
-                .padding(.top, 8)
+                ScreenTitle(eyebrow: "Аналитика", title: "Куда ушли деньги")
 
                 if isDemo { DemoBanner() }
 
@@ -271,7 +261,7 @@ struct StatsView: View {
                             y: .value("Сумма", shown ? d.total : 0),
                             width: .ratio(0.62))
                         .cornerRadius(4)
-                        .foregroundStyle(d.isToday ? Color.warm : Color.ink.opacity(isSelected(d) ? 0.5 : 0.18))
+                        .foregroundStyle(d.isToday ? Color.bubble : Color.violet.opacity(isSelected(d) ? 0.75 : 0.35))
                 }
                 if avg > 0 {
                     RuleMark(y: .value("Среднее", avg))

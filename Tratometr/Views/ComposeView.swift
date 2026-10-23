@@ -24,14 +24,19 @@ struct ComposeView: View {
     @State private var savedTick = 0
     @FocusState private var focused: Bool
 
-    private let examples = ["капучино 280 и круассан 190", "вчера такси до дома 640", "Пятёрочка полторы тысячи"]
+    private var incomeMode: Bool { start == .income }
+
+    private var examples: [String] {
+        incomeMode
+            ? ["пришло 40 000, часть зарплаты", "продал велосипед за 15 тысяч", "кэшбэк 1200"]
+            : ["капучино 280 и круассан 190", "вчера такси до дома 640", "пришло 40 000, часть зарплаты"]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(drafts.isEmpty ? "Что потратил?" : "Проверь и сохрани")
-                    .font(.title3.weight(.semibold))
-                    .fontWidth(.expanded)
+                Text(title)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.ink)
                     .contentTransition(.opacity)
                 Spacer()
@@ -54,25 +59,29 @@ struct ComposeView: View {
                         .onTapGesture { toggleMic() }
 
                     Text(status)
-                        .font(.subheadline)
+                        .font(.subheadline.weight(.medium))
                         .foregroundStyle(Color.muted)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                         .animation(.easeInOut, value: status)
 
-                    TextField("Например: кофе 250, такси 640 и вчера продукты 2300", text: $text, axis: .vertical)
+                    TextField(incomeMode ? "Например: пришло 40 000, часть зарплаты"
+                                         : "Например: кофе 250, такси 640 или «пришло 40 000»",
+                              text: $text, axis: .vertical)
                         .lineLimit(2...6)
-                        .font(.system(size: 18))
+                        .font(.system(size: 18, weight: .medium, design: .rounded))
                         .foregroundStyle(Color.ink)
                         .padding(14)
                         .background(Color.appBG, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(focused ? Color.violet.opacity(0.5) : Color.clear, lineWidth: 1.5))
                         .focused($focused)
                         .submitLabel(.done)
                         .onSubmit { Task { await parse() } }
 
                     if let errorText {
-                        Label(errorText, systemImage: "exclamationmark.circle")
-                            .font(.footnote)
+                        Label(errorText, systemImage: "exclamationmark.circle.fill")
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(Color.bad)
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
@@ -83,11 +92,11 @@ struct ComposeView: View {
                                 ForEach(examples, id: \.self) { ex in
                                     Button { text = ex } label: {
                                         Text(ex)
-                                            .font(.footnote)
-                                            .foregroundStyle(Color.muted)
+                                            .font(.footnote.weight(.medium))
+                                            .foregroundStyle(Color.violet)
                                             .padding(.horizontal, 11)
                                             .padding(.vertical, 7)
-                                            .background(Color.appBG, in: Capsule())
+                                            .background(Color.violet.opacity(0.10), in: Capsule())
                                     }
                                 }
                             }
@@ -152,15 +161,20 @@ struct ComposeView: View {
 
     // MARK: pieces
 
-    private var status: String {
-        if let busy { return busy }
-        if speech.isRunning { return "Слушаю. Говори свободно: «вчера», «полторы тысячи», несколько трат подряд" }
-        if !drafts.isEmpty { return "Поправь, если что-то не так, и сохрани" }
-        return "Нажми на микрофон и скажи, что купил. Или напиши."
+    private var title: String {
+        if !drafts.isEmpty { return "Проверь и сохрани" }
+        return incomeMode ? "Сколько пришло?" : "Что потратил?"
     }
 
-    private var draftTotal: Double {
-        drafts.filter { $0.currency == currency }.reduce(0) { $0 + $1.amount }
+    private var status: String {
+        if let busy { return busy }
+        if speech.isRunning { return "Слушаю! Говори свободно: траты, «пришло 40 000», «вчера», «полторы тысячи»" }
+        if !drafts.isEmpty { return "Поправь, если что-то не так, и сохрани" }
+        return incomeMode ? "Нажми на микрофон и скажи, сколько и откуда пришло" : "Нажми на микрофон и скажи, что купил или сколько пришло"
+    }
+
+    private var draftNet: Double {
+        drafts.filter { $0.currency == currency }.reduce(0) { $0 + ($1.isIncome ? $1.amount : -$1.amount) }
     }
 
     private var canSave: Bool { !drafts.isEmpty && text == parsedText && busy == nil }
@@ -171,20 +185,21 @@ struct ComposeView: View {
                 Button { openScanner() } label: { Label("Сфотографировать чек", systemImage: "doc.viewfinder") }
                 Button { showGallery = true } label: { Label("Выбрать из галереи", systemImage: "photo.on.rectangle") }
             } label: {
-                Image(systemName: "camera")
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(Color.ink)
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 19, weight: .semibold))
+                    .foregroundStyle(Color.sky)
                     .frame(width: 52, height: 52)
-                    .background(Color.surface2, in: Circle())
+                    .background(Color.sky.opacity(0.14), in: Circle())
             }
             .accessibilityLabel("Фото чека")
 
             Button { toggleMic() } label: {
                 Image(systemName: speech.isRunning ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: 22, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 58, height: 58)
-                    .background(Circle().fill(OrbGradient.angular))
+                    .background(Circle().fill(Palette.orb))
+                    .shadow(color: Color.bubble.opacity(0.4), radius: 10, y: 5)
                     .symbolEffect(.pulse, isActive: speech.isRunning)
             }
             .buttonStyle(PressScale())
@@ -194,14 +209,15 @@ struct ComposeView: View {
                 if canSave { save() } else { Task { await parse() } }
             } label: {
                 Text(canSave ? saveTitle : "Разобрать")
-                    .font(.headline)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .foregroundStyle(Color.surface)
+                    .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 52)
-                    .background(Color.ink, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .opacity(primaryDisabled ? 0.4 : 1)
+                    .background(canSave ? AnyShapeStyle(Palette.plus) : AnyShapeStyle(Palette.accent),
+                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .opacity(primaryDisabled ? 0.45 : 1)
             }
             .buttonStyle(PressScale())
             .disabled(primaryDisabled)
@@ -215,15 +231,15 @@ struct ComposeView: View {
 
     private var saveTitle: String {
         let n = drafts.count
-        let what = n == 1 ? "Сохранить" : "Сохранить \(n) \(plural(n, "трату", "траты", "трат"))"
-        return "\(what) · \(Money.format(draftTotal, currency))"
+        let what = n == 1 ? "Сохранить" : "Сохранить \(n)"
+        return "\(what) · \(Money.signed(draftNet, currency))"
     }
 
     // MARK: actions
 
     private func begin() {
         switch start {
-        case .voice: startListening()
+        case .voice, .income: startListening()
         case .text: focused = true
         case .scan: openScanner()
         case .gallery: showGallery = true
@@ -254,14 +270,14 @@ struct ComposeView: View {
         focused = false
         if speech.isRunning { speech.stop() }
         app.setMood(.think)
-        let result = await ExpenseParser.parse(text: t, currency: currency)
+        let result = await ExpenseParser.parse(text: t, currency: currency, forceIncome: incomeMode)
         busy = nil
         parsedText = text
         app.setMood(.idle)
         withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { drafts = result.items }
         if let notice = result.notice { app.showToast(notice) }
         if result.items.isEmpty {
-            errorText = "Не нашёл сумму. Скажи, например: «обед 650» или «такси 400 рублей»."
+            errorText = "Не нашёл сумму. Скажи, например: «обед 650» или «пришло 40 000»."
         }
     }
 
@@ -287,20 +303,29 @@ struct ComposeView: View {
         guard let top = items.max(by: { $0.amount < $1.amount }) else { return }
         var created: [Expense] = []
         for d in items {
-            let e = Expense(amount: d.amount, currency: d.currency, categoryID: d.category.rawValue,
+            let e = Expense(amount: d.amount, currency: d.currency, categoryID: d.categoryID,
                             note: d.note.trimmingCharacters(in: .whitespaces), date: d.date,
-                            source: d.source, rawText: String(d.raw.prefix(400)))
+                            source: d.source, rawText: String(d.raw.prefix(400)),
+                            kind: d.isIncome ? "income" : "expense")
             context.insert(e)
             created.append(e)
         }
         try? context.save()
         savedTick += 1
-        app.orb.burst(top.category.rgb)
+        app.orb.burst(top.isIncome ? top.income.rgb : top.category.rgb)
+        app.confetti += 1
 
-        let total = items.filter { $0.currency == currency }.reduce(0) { $0 + $1.amount }
-        let label = items.count == 1 ? top.note : "\(items.count) \(plural(items.count, "трату", "траты", "трат"))"
+        let incomeCount = items.filter(\.isIncome).count
+        let label: String
+        if items.count == 1 {
+            label = top.isIncome ? "Пришло: \(top.note)" : "Записал: \(top.note)"
+        } else if incomeCount == items.count {
+            label = "Записал \(items.count) \(plural(items.count, "поступление", "поступления", "поступлений"))"
+        } else {
+            label = "Записал \(items.count) \(plural(items.count, "запись", "записи", "записей"))"
+        }
         let ctx = context
-        app.showToast("Записал: \(label) · \(Money.format(total, currency))", undo: {
+        app.showToast("\(label) · \(Money.signed(draftNet, currency))", undo: {
             for e in created { ctx.delete(e) }
             try? ctx.save()
         })
@@ -317,40 +342,63 @@ struct DraftRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             categoryMenu {
-                CategoryIcon(category: draft.category)
+                ItemIcon(symbol: draft.symbol, color: draft.color)
                     .symbolEffect(.bounce, value: pop)
             }
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
-                    TextField("Что купил", text: $draft.note)
-                        .font(.system(size: 16, weight: .medium))
+                    TextField(draft.isIncome ? "Что пришло" : "Что купил", text: $draft.note)
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Color.ink)
+                    Text(draft.isIncome ? "+" : "−")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(draft.isIncome ? Color.good : Color.muted)
                     TextField("0", text: $amountText)
                         .keyboardType(.decimalPad)
                         .multilineTextAlignment(.trailing)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .bold))
                         .monospacedDigit()
-                        .foregroundStyle(Color.ink)
-                        .frame(width: 92)
+                        .foregroundStyle(draft.isIncome ? Color.good : Color.ink)
+                        .frame(width: 88)
                         .onChange(of: amountText) { _, v in draft.amount = Money.parse(v) }
                     Text(CurrencyInfo.get(draft.currency).symbol)
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.muted)
                 }
-                HStack(spacing: 8) {
-                    categoryMenu {
-                        Text(draft.category.name)
-                            .font(.caption.weight(.medium))
-                            .foregroundStyle(draft.category.color)
+                HStack(spacing: 6) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                            let wasDefault = isDefaultNote
+                            draft.isIncome.toggle()
+                            if wasDefault { draft.note = draft.kindName }
+                            pop += 1
+                        }
+                    } label: {
+                        Text(draft.isIncome ? "Доход" : "Трата")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(draft.isIncome ? Color.good : Color.warm)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
-                            .background(draft.category.color.opacity(0.13), in: Capsule())
+                            .background((draft.isIncome ? Color.good : Color.warm).opacity(0.13), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityHint("Переключить трату и доход")
+
+                    categoryMenu {
+                        Text(draft.kindName)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(draft.color)
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(draft.color.opacity(0.13), in: Capsule())
                     }
                     DatePicker("Дата", selection: $draft.date, in: ...Date(), displayedComponents: .date)
                         .labelsHidden()
                         .datePickerStyle(.compact)
-                        .scaleEffect(0.86, anchor: .leading)
+                        .scaleEffect(0.82, anchor: .leading)
+                        .frame(maxWidth: 110, alignment: .leading)
                     Spacer(minLength: 0)
                     Button(action: onDelete) {
                         Image(systemName: "xmark")
@@ -369,16 +417,31 @@ struct DraftRow: View {
         .onAppear { amountText = Money.plain(draft.amount) }
     }
 
+    private var isDefaultNote: Bool {
+        draft.note.isEmpty
+            || SpendCategory.allCases.contains { $0.name == draft.note }
+            || IncomeSource.allCases.contains { $0.name == draft.note }
+    }
+
     private func categoryMenu<L: View>(@ViewBuilder label: () -> L) -> some View {
         Menu {
-            ForEach(SpendCategory.allCases) { c in
-                Button {
-                    let wasDefaultNote = draft.note.isEmpty || SpendCategory.allCases.contains { $0.name == draft.note }
-                    draft.category = c
-                    if wasDefaultNote { draft.note = c.name }
-                    pop += 1
-                } label: {
-                    Label(c.name, systemImage: c.symbol)
+            if draft.isIncome {
+                ForEach(IncomeSource.allCases) { s in
+                    Button {
+                        let wasDefault = isDefaultNote
+                        draft.income = s
+                        if wasDefault { draft.note = s.name }
+                        pop += 1
+                    } label: { Label(s.name, systemImage: s.symbol) }
+                }
+            } else {
+                ForEach(SpendCategory.allCases) { c in
+                    Button {
+                        let wasDefault = isDefaultNote
+                        draft.category = c
+                        if wasDefault { draft.note = c.name }
+                        pop += 1
+                    } label: { Label(c.name, systemImage: c.symbol) }
                 }
             }
         } label: {

@@ -63,13 +63,20 @@ struct ClaudeService {
         SpendCategory.allCases.map { "\($0.rawValue): \($0.name) (\($0.hint))" }.joined(separator: "\n")
     }
 
-    func parseExpenses(text: String, currency: String) async throws -> [DraftExpense] {
-        let prompt = """
-        Разбери голосовую заметку о расходах. Текст продиктован голосом на русском: возможны ошибки распознавания, слова-паразиты, числа словами.
-        Сегодня \(RuDate.longToday()). Основная валюта: \(currency).
+    private static var incomeList: String {
+        IncomeSource.allCases.map { "\($0.rawValue): \($0.name) (\($0.hint))" }.joined(separator: "\n")
+    }
 
-        Категории (id: название, примеры):
+    func parseExpenses(text: String, currency: String, forceIncome: Bool = false) async throws -> [DraftExpense] {
+        let prompt = """
+        Разбери голосовую заметку о деньгах: траты и поступления. Текст продиктован голосом на русском: возможны ошибки распознавания, слова-паразиты, числа словами.
+        Сегодня \(RuDate.longToday()). Основная валюта: \(currency).\(forceIncome ? " Человек сейчас записывает поступления, поэтому всё считай поступлениями, если явно не сказано иное." : "")
+
+        Категории трат (id: название, примеры):
         \(Self.categoryList)
+
+        Категории поступлений (id: название, примеры):
+        \(Self.incomeList)
 
         Правила:
         - Каждая отдельная покупка это отдельный объект. Если одна сумма названа за несколько вещей, это одна трата.
@@ -77,11 +84,12 @@ struct ClaudeService {
         - Числа словами переводи в цифры: «полторы тысячи» = 1500, «две с половиной тысячи» = 2500, «косарь» = 1000, «пятихатка» = 500, «2к» = 2000.
         - daysAgo: 0 сегодня, 1 вчера, 2 позавчера; «в понедельник» = сколько дней назад был ближайший прошедший понедельник.
         - currency: ISO-код (RUB, EUR, USD, KZT, GBP). Если валюта не названа, ставь \(currency).
-        - category: один id из списка, самый подходящий. Магазин продуктов (Пятёрочка, Albert Heijn, Lidl) это food.
-        - note: 1-4 слова по-русски с заглавной буквы: что купил или где («Капучино», «Такси до офиса», «Пятёрочка»).
+        - type: "expense" для трат, "income" для поступлений денег (пришло, получил, зарплата, аванс, продал, перевели мне, вернули, кэшбэк).
+        - category: один id. Для трат из категорий трат (магазин продуктов вроде Пятёрочки или Lidl это food), для поступлений из категорий поступлений («часть зарплаты» это salary).
+        - note: 1-4 слова по-русски с заглавной буквы: что купил или где («Капучино», «Такси до офиса»), для поступлений что пришло («Часть зарплаты», «Продал велосипед»).
         - Если сумм нет совсем, верни [].
 
-        Ответь только JSON-массивом, без пояснений. Пример: [{"amount":250,"currency":"\(currency)","category":"coffee","note":"Капучино","daysAgo":0}]
+        Ответь только JSON-массивом, без пояснений. Пример: [{"type":"expense","amount":250,"currency":"\(currency)","category":"coffee","note":"Капучино","daysAgo":0},{"type":"income","amount":40000,"currency":"\(currency)","category":"salary","note":"Часть зарплаты","daysAgo":0}]
 
         Текст: «\(text.prefix(2000))»
         """
@@ -129,29 +137,33 @@ struct ClaudeService {
             guard amount > 0, amount.isFinite else { return nil }
             var cur = (o["currency"] as? String)?.uppercased() ?? currency
             if !CurrencyInfo.all.contains(where: { $0.code == cur }) { cur = currency }
-            let cat = SpendCategory(rawValue: (o["category"] as? String) ?? "") ?? .other
+            let catID = (o["category"] as? String) ?? ""
+            let isIncome = (o["type"] as? String) == "income" || (SpendCategory(rawValue: catID) == nil && IncomeSource(rawValue: catID) != nil)
+            let cat = SpendCategory(rawValue: catID) ?? .other
+            let src = IncomeSource(rawValue: catID) ?? .other
             var days = (o["daysAgo"] as? NSNumber)?.intValue ?? 0
             if days < 0 || days > 400 { days = 0 }
             let note = ((o["note"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
-            return DraftExpense(amount: (amount * 100).rounded() / 100, currency: cur, category: cat,
-                                note: note.isEmpty ? cat.name : String(note.prefix(60)),
-                                date: RuDate.date(daysAgo: days), source: source, raw: raw)
+            return DraftExpense(amount: (amount * 100).rounded() / 100, currency: cur, category: isIncome ? .other : cat,
+                                note: note.isEmpty ? (isIncome ? src.name : cat.name) : String(note.prefix(60)),
+                                date: RuDate.date(daysAgo: days), source: source, raw: raw,
+                                isIncome: isIncome, income: src)
         }
     }
 }
 
 /// Picks Claude when a key is set, otherwise the offline parser / OCR.
 enum ExpenseParser {
-    static func parse(text: String, currency: String) async -> (items: [DraftExpense], notice: String?) {
+    static func parse(text: String, currency: String, forceIncome: Bool = false) async -> (items: [DraftExpense], notice: String?) {
         if let claude = ClaudeService.stored {
             do {
-                let items = try await claude.parseExpenses(text: text, currency: currency)
+                let items = try await claude.parseExpenses(text: text, currency: currency, forceIncome: forceIncome)
                 if !items.isEmpty { return (items, nil) }
             } catch {
-                return (LocalParser.parse(text, currency: currency), "Claude не ответил, разобрал сам")
+                return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome), "Claude не ответил, разобрал сам")
             }
         }
-        return (LocalParser.parse(text, currency: currency), nil)
+        return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome), nil)
     }
 
     static func parseReceipt(_ image: UIImage, currency: String) async -> (items: [DraftExpense], notice: String?) {

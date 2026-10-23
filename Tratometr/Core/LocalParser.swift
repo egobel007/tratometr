@@ -18,10 +18,18 @@ enum LocalParser {
         "оплатил", "оплатила", "взял", "взяла", "за", "на", "в", "во", "около", "примерно", "где-то", "еще",
         "вчера", "сегодня", "позавчера", "руб", "рубля", "рублей", "рубль", "р", "евро", "доллар", "доллара",
         "долларов", "бакса", "баксов", "тенге", "фунт", "фунтов", "по", "тысяч", "тысячи", "тысяча", "тыс",
-        "штук", "штуки", "с", "половиной", "ну", "вот", "короче", "типа", "это", "было", "была", "был", "и", "а", "плюс"
+        "штук", "штуки", "с", "половиной", "ну", "вот", "короче", "типа", "это", "было", "была", "был", "и", "а", "плюс",
+        "пришло", "пришла", "пришли", "поступило", "поступила", "получил", "получила", "получили", "часть", "частью",
+        "перевели", "скинули", "заработал", "заработала", "продал", "продала", "перепродал", "мне", "от", "из", "зп"
     ]
 
-    static func parse(_ text: String, currency: String) -> [DraftExpense] {
+    static let incomeWords: Set<String> = ["пришло", "пришла", "пришли", "пришел", "поступило", "поступила", "поступили",
+                                          "поступление", "получил", "получила", "получили", "зп"]
+    static let incomeTriggers = ["зарплат", "аванс", "получк", "преми", "продал", "перепродал",
+                                 "перевели", "перевел мне", "скинули", "вернули", "кэшбэк", "кешбэк", "кешбек", "кэшбек",
+                                 "доход", "заработал", "гонорар", "подработ", "дивиденд", "проценты по"]
+
+    static func parse(_ text: String, currency: String, forceIncome: Bool = false) -> [DraftExpense] {
         let src = text.lowercased().replacingOccurrences(of: "ё", with: "е")
         let parts = src.splitRegex(#"[;\n]+|,(?!\d)|\.(?=\s|$)|\s+(?:и|а|плюс|потом|затем|также)\s+"#)
         var out: [DraftExpense] = []
@@ -34,12 +42,19 @@ enum LocalParser {
             let p = (carry + " " + part).trimmingCharacters(in: .whitespaces)
             guard let amount = findAmount(p), amount > 0 else { carry = p; continue }
             carry = ""
+            if forceIncome || isIncomeText(p) {
+                let src = detectIncome(p)
+                out.append(DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: .other,
+                                        note: incomeNote(p, src), date: RuDate.date(daysAgo: days), source: "voice",
+                                        raw: text, isIncome: true, income: src))
+                continue
+            }
             let cat = detectCategory(p)
             out.append(DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: cat,
                                     note: note(p, cat), date: RuDate.date(daysAgo: days), source: "voice", raw: text))
         }
         if !carry.isEmpty, var last = out.popLast() {
-            if last.category == .other { last.category = detectCategory(carry) }
+            if !last.isIncome && last.category == .other { last.category = detectCategory(carry) }
             out.append(last)
         }
         return out
@@ -148,5 +163,40 @@ enum LocalParser {
         let n = words.prefix(4).joined(separator: " ")
         guard let first = n.first else { return cat.name }
         return first.uppercased() + n.dropFirst()
+    }
+
+    // MARK: income
+
+    static func isIncomeText(_ s: String) -> Bool {
+        let text = s.lowercased().replacingOccurrences(of: "ё", with: "е")
+        if incomeTriggers.contains(where: { text.contains($0) }) { return true }
+        let tokens = Set(text.components(separatedBy: CharacterSet.letters.inverted))
+        return !tokens.isDisjoint(with: incomeWords)
+    }
+
+    static func detectIncome(_ s: String) -> IncomeSource {
+        let text = s.lowercased().replacingOccurrences(of: "ё", with: "е")
+        let tokens = Set(text.components(separatedBy: CharacterSet.letters.inverted))
+        if tokens.contains("зп") { return .salary }
+        var best = IncomeSource.other
+        var score = 0
+        for src in IncomeSource.allCases {
+            for k in src.keywords where k != "зп" && text.contains(k) && k.count > score {
+                best = src
+                score = k.count
+            }
+        }
+        return best
+    }
+
+    static func incomeNote(_ chunk: String, _ src: IncomeSource) -> String {
+        if src == .salary {
+            let t = chunk.lowercased()
+            if t.contains("аванс") { return "Аванс" }
+            if t.contains("преми") { return "Премия" }
+            return t.contains("част") ? "Часть зарплаты" : "Зарплата"
+        }
+        let n = note(chunk, .other)
+        return n == SpendCategory.other.name ? src.name : n
     }
 }
