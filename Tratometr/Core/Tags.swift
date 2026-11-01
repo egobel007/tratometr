@@ -136,6 +136,36 @@ enum Tags {
 
     static func stem5(_ w: String) -> String? { w.count >= 4 ? String(w.prefix(5)) : nil }
 
+    /// A keyword is found when a word starts with it; phrases are looked up in the whole text.
+    static func hits(_ k: String, tokens: [String], text: String) -> Bool {
+        if k.contains(" ") || k.contains("-") { return text.contains(k) }
+        if k.count <= 3 { return tokens.contains { $0.hasPrefix(k) && $0.count <= k.count + 3 } }
+        return tokens.contains { $0.hasPrefix(k) }
+    }
+
+    /// Word start differs from the keyword by at most one letter: «ристоран» ≈ «ресторан»
+    static func close(_ token: String, _ k: String) -> Bool {
+        let t = Array(token), b = Array(k)
+        for len in max(1, b.count - 1)...min(t.count, b.count + 1) {
+            if distance(Array(t.prefix(len)), b) <= 1 { return true }
+        }
+        return false
+    }
+
+    private static func distance(_ a: [Character], _ b: [Character]) -> Int {
+        if a.isEmpty { return b.count }
+        if b.isEmpty { return a.count }
+        var prev = Array(0...b.count)
+        for i in 1...a.count {
+            var cur = [i] + Array(repeating: 0, count: b.count)
+            for j in 1...b.count {
+                cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] == b[j - 1] ? 0 : 1))
+            }
+            prev = cur
+        }
+        return prev[b.count]
+    }
+
     static func uniq(_ list: [String]) -> [String] {
         var seen = Set<String>()
         return list.filter { seen.insert($0).inserted }
@@ -273,7 +303,7 @@ enum Tags {
         "expense:cafe": [
             ("Столовая", ["столов"]),
             ("Фастфуд", ["фастфуд", "макдон", "kfc", "кфс", "бургер", "шаурм", "шаверм", "вкусно и точка", "хот-дог", "хотдог", "донер"]),
-            ("Ресторан", ["ресторан"]),
+            ("Ресторан", ["ресторан", "рестик"]),
             ("Доставка еды", ["доставк"]),
             ("Бар", ["бар", "пиво", "пива", "коктейл", "вино", "вина"]),
             ("Суши", ["суши", "ролл"]),
@@ -370,10 +400,11 @@ enum Tags {
 
     static func seedSub(_ text: String, isIncome: Bool, group: String) -> String {
         let t = norm(text)
+        let tokens = words(t)
         var best = ""
         var score = 0
         for (name, stems) in seeds[key(isIncome, group)] ?? [] {
-            for s in stems where t.contains(s) && s.count > score {
+            for s in stems where s.count > score && hits(s, tokens: tokens, text: t) {
                 best = name
                 score = s.count
             }
@@ -444,6 +475,10 @@ enum Tags {
         })
         let everyone = ctx.people + d.people.map { Person(name: $0) }
         d.note = stripPeople(d.note, people: everyone)
-        applyRules(&d, text: d.note, ctx: ctx)
+        if !d.isIncome && d.category == .other {
+            let local = LocalParser.detectCategory(d.note + " " + d.sub)
+            if local != .other { d.category = local }
+        }
+        applyRules(&d, text: d.note + " " + d.sub, ctx: ctx)
     }
 }

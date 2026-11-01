@@ -2,7 +2,7 @@ import SwiftUI
 import SwiftData
 import PhotosUI
 
-/// Voice / text / receipt input, then a review of what was understood.
+/// Speak (or type, or snap a receipt) and it is saved right away. Undo is in the toast.
 struct ComposeView: View {
     @EnvironmentObject private var app: AppState
     @ObservedObject var speech: SpeechRecognizer
@@ -14,114 +14,56 @@ struct ComposeView: View {
 
     @State private var text = ""
     @State private var baseText = ""
-    @State private var parsedText = ""
-    @State private var drafts: [DraftExpense] = []
-    @State private var busy: String?
+    @State private var busy = false
     @State private var errorText: String?
+    @State private var typing = false
     @State private var showScanner = false
     @State private var showGallery = false
     @State private var photoItem: PhotosPickerItem?
     @State private var savedTick = 0
     @FocusState private var focused: Bool
 
-    private var incomeMode: Bool { start == .income }
-
-    private var examples: [String] {
-        incomeMode
-            ? ["пришло 40 000, часть зарплаты", "продал велосипед за 15 тысяч", "кэшбэк 1200"]
-            : ["капучино 280 и круассан 190", "вчера такси до дома 640", "пришло 40 000, часть зарплаты"]
-    }
-
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.ink)
-                    .contentTransition(.opacity)
-                Spacer()
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(Color.muted)
-                        .frame(width: 32, height: 32)
-                        .background(Color.surface2, in: Circle())
-                }
-                .accessibilityLabel("Закрыть")
-            }
-            .padding(.top, 22)
-            .padding(.bottom, 8)
-
             ScrollView {
-                VStack(spacing: 14) {
-                    OrbView(engine: app.orb)
-                        .frame(width: 112, height: 112)
-                        .onTapGesture { toggleMic() }
-
-                    Text(status)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(Color.muted)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .animation(.easeInOut, value: status)
-
-                    TextField(incomeMode ? "Например: пришло 40 000, часть зарплаты"
-                                         : "Например: кофе 250, такси 640 или «пришло 40 000»",
-                              text: $text, axis: .vertical)
-                        .lineLimit(2...6)
-                        .font(.system(size: 18, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color.ink)
-                        .padding(14)
-                        .background(Color.appBG, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(focused ? Color.violet.opacity(0.5) : Color.clear, lineWidth: 1.5))
-                        .focused($focused)
-                        .submitLabel(.done)
-                        .onSubmit { Task { await parse() } }
-
-                    if let errorText {
-                        Label(errorText, systemImage: "exclamationmark.circle.fill")
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(Color.bad)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    if drafts.isEmpty && text.isEmpty && !speech.isRunning && busy == nil {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(examples, id: \.self) { ex in
-                                    Button { text = ex } label: {
-                                        Text(ex)
-                                            .font(.footnote.weight(.medium))
-                                            .foregroundStyle(Color.violet)
-                                            .padding(.horizontal, 11)
-                                            .padding(.vertical, 7)
-                                            .background(Color.violet.opacity(0.10), in: Capsule())
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    ForEach($drafts) { $draft in
-                        DraftRow(draft: $draft) {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                                drafts.removeAll { $0.id == draft.id }
-                            }
-                        }
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .modifier(active: Tilt3D(angle: -45, offset: 20),
-                                                                         identity: Tilt3D(angle: 0, offset: 0))),
-                            removal: .opacity.combined(with: .scale(scale: 0.9))))
+                Group {
+                    if typing {
+                        TextField("ресторан 1500, такси 400", text: $text, axis: .vertical)
+                            .lineLimit(1...6)
+                            .focused($focused)
+                            .submitLabel(.done)
+                            .onSubmit { Task { await commit() } }
+                    } else {
+                        Text(text.isEmpty ? "Скажи, например:\n«ресторан 1500, такси 400»" : text)
+                            .foregroundStyle(text.isEmpty ? Color.faint : Color.ink)
+                            .contentTransition(.opacity)
+                            .animation(.easeOut(duration: 0.15), value: text)
                     }
                 }
-                .padding(.bottom, 12)
+                .font(.system(size: 24, weight: .semibold))
+                .fontWidth(.expanded)
+                .foregroundStyle(Color.ink)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 34)
             }
             .scrollDismissesKeyboard(.interactively)
 
-            actionBar
+            Text(status)
+                .font(.subheadline)
+                .foregroundStyle(errorText == nil ? Color.muted : Color.bad)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .animation(.easeInOut, value: status)
+                .padding(.bottom, 12)
+
+            Waveform(level: speech.level, active: speech.isRunning || busy)
+                .frame(height: 36)
+                .padding(.bottom, 16)
+
+            controls
+                .padding(.bottom, 14)
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 24)
         .background(Color.surface)
         .sensoryFeedback(.success, trigger: savedTick)
         .onAppear(perform: begin)
@@ -134,10 +76,14 @@ struct ComposeView: View {
         }
         .onChange(of: speech.level) { _, level in app.orb.voice(level) }
         .onChange(of: speech.isRunning) { _, running in
-            if running { app.setMood(.listen) } else if busy == nil { app.setMood(.idle) }
+            if running { app.setMood(.listen) } else if !busy { app.setMood(.idle) }
         }
         .onChange(of: speech.finishedCount) { _, _ in
-            if drafts.isEmpty || text != parsedText { Task { await parse() } }
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if errorText == nil { errorText = "Ничего не услышал. Нажми на микрофон и скажи ещё раз." }
+            } else {
+                Task { await commit() }
+            }
         }
         .onChange(of: speech.errorText) { _, e in if let e { errorText = e } }
         .fullScreenCover(isPresented: $showScanner) {
@@ -161,86 +107,74 @@ struct ComposeView: View {
 
     // MARK: pieces
 
-    private var title: String {
-        if !drafts.isEmpty { return "Проверь и сохрани" }
-        return incomeMode ? "Сколько пришло?" : "Что потратил?"
-    }
-
     private var status: String {
-        if let busy { return busy }
-        if speech.isRunning { return "Слушаю! Говори свободно: траты, «пришло 40 000», «вчера», «полторы тысячи»" }
-        if !drafts.isEmpty { return "Поправь, если что-то не так, и сохрани" }
-        return incomeMode ? "Нажми на микрофон и скажи, сколько и откуда пришло" : "Нажми на микрофон и скажи, что купил или сколько пришло"
+        if let errorText { return errorText }
+        if busy { return "Записываю…" }
+        if speech.isRunning { return "Слушаю. Можно несколько трат подряд" }
+        if typing { return "Напиши и нажми «Готово»" }
+        return "Нажми на микрофон и говори"
     }
 
-    private var draftNet: Double {
-        drafts.filter { $0.currency == currency }.reduce(0) { $0 + ($1.isIncome ? $1.amount : -$1.amount) }
-    }
-
-    private var canSave: Bool { !drafts.isEmpty && text == parsedText && busy == nil }
-
-    private var actionBar: some View {
-        HStack(spacing: 10) {
+    private var controls: some View {
+        HStack {
             Menu {
                 Button { openScanner() } label: { Label("Сфотографировать чек", systemImage: "doc.viewfinder") }
                 Button { showGallery = true } label: { Label("Выбрать из галереи", systemImage: "photo.on.rectangle") }
             } label: {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 19, weight: .semibold))
-                    .foregroundStyle(Color.sky)
-                    .frame(width: 52, height: 52)
-                    .background(Color.sky.opacity(0.14), in: Circle())
+                circle("camera", size: 52)
             }
             .accessibilityLabel("Фото чека")
 
-            Button { toggleMic() } label: {
-                Image(systemName: speech.isRunning ? "stop.fill" : "mic.fill")
-                    .font(.system(size: 22, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 58, height: 58)
-                    .background(Circle().fill(Palette.orb))
-                    .shadow(color: Color.bubble.opacity(0.4), radius: 10, y: 5)
-                    .symbolEffect(.pulse, isActive: speech.isRunning)
-            }
-            .buttonStyle(PressScale())
-            .accessibilityLabel(speech.isRunning ? "Остановить запись" : "Говорить")
+            Spacer()
 
             Button {
-                if canSave { save() } else { Task { await parse() } }
+                if typing { Task { await commit() } } else { toggleMic() }
             } label: {
-                Text(canSave ? saveTitle : "Разобрать")
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 52)
-                    .background(canSave ? AnyShapeStyle(Palette.plus) : AnyShapeStyle(Palette.accent),
-                                in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .opacity(primaryDisabled ? 0.45 : 1)
+                Image(systemName: typing ? "arrow.up" : (speech.isRunning ? "stop.fill" : "mic.fill"))
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(Color.surface)
+                    .frame(width: 76, height: 76)
+                    .background(Color.ink, in: Circle())
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(PressScale())
-            .disabled(primaryDisabled)
+            .disabled(busy || (typing && text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+            .accessibilityLabel(typing ? "Записать" : (speech.isRunning ? "Остановить" : "Говорить"))
+
+            Spacer()
+
+            Button {
+                withAnimation(.snappy) {
+                    typing.toggle()
+                    if typing {
+                        speech.stop()
+                        focused = true
+                    } else {
+                        focused = false
+                        startListening()
+                    }
+                }
+            } label: {
+                circle(typing ? "mic" : "keyboard", size: 52)
+            }
+            .accessibilityLabel(typing ? "Говорить" : "Написать")
         }
-        .padding(.vertical, 12)
     }
 
-    private var primaryDisabled: Bool {
-        busy != nil || (text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && drafts.isEmpty)
-    }
-
-    private var saveTitle: String {
-        let n = drafts.count
-        let what = n == 1 ? "Сохранить" : "Сохранить \(n)"
-        return "\(what) · \(Money.signed(draftNet, currency))"
+    private func circle(_ symbol: String, size: CGFloat) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 19, weight: .medium))
+            .foregroundStyle(Color.ink)
+            .frame(width: size, height: size)
+            .background(Color.surface2, in: Circle())
     }
 
     // MARK: actions
 
     private func begin() {
         switch start {
-        case .voice, .income: startListening()
-        case .text: focused = true
+        case .voice: startListening()
+        case .text: typing = true; focused = true
         case .scan: openScanner()
         case .gallery: showGallery = true
         }
@@ -252,7 +186,6 @@ struct ComposeView: View {
 
     private func startListening() {
         errorText = nil
-        focused = false
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         baseText = t.isEmpty ? "" : t + ", "
         speech.start()
@@ -262,43 +195,39 @@ struct ComposeView: View {
         if speech.isRunning { speech.stop() } else { startListening() }
     }
 
-    private func parse() async {
+    private func commit() async {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !t.isEmpty, busy == nil else { return }
-        busy = "Разбираю…"
+        guard !t.isEmpty, !busy else { return }
+        busy = true
         errorText = nil
         focused = false
         if speech.isRunning { speech.stop() }
         app.setMood(.think)
-        let result = await ExpenseParser.parse(text: t, currency: currency, forceIncome: incomeMode, ctx: TagStore.shared.context)
-        busy = nil
-        parsedText = text
+        let result = await ExpenseParser.parse(text: t, currency: currency, ctx: TagStore.shared.context)
+        busy = false
         app.setMood(.idle)
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { drafts = result.items }
-        if let notice = result.notice { app.showToast(notice) }
-        if result.items.isEmpty {
-            errorText = "Не нашёл сумму. Скажи, например: «обед 650» или «пришло 40 000»."
+        guard !result.items.isEmpty else {
+            errorText = "Не нашёл сумму. Скажи, например: «ресторан 1500»."
+            return
         }
+        save(result.items)
     }
 
     private func scan(_ image: UIImage) async {
-        busy = "Читаю чек…"
+        busy = true
         errorText = nil
         app.setMood(.think)
         let result = await ExpenseParser.parseReceipt(image, currency: currency, ctx: TagStore.shared.context)
-        busy = nil
+        busy = false
         app.setMood(.idle)
-        if result.items.isEmpty {
+        guard !result.items.isEmpty else {
             errorText = "На фото не нашёл итоговую сумму. Сними чек ближе или скажи сумму голосом."
             return
         }
-        text = result.items.map { "\($0.note) \(Money.plain($0.amount))" }.joined(separator: ", ")
-        parsedText = text
-        withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) { drafts = result.items }
-        if let notice = result.notice { app.showToast(notice) }
+        save(result.items)
     }
 
-    private func save() {
+    private func save(_ drafts: [DraftExpense]) {
         let items = drafts.filter { $0.amount > 0 }
         guard let top = items.max(by: { $0.amount < $1.amount }) else { return }
         var created: [Expense] = []
@@ -316,19 +245,19 @@ struct ComposeView: View {
         try? context.save()
         savedTick += 1
         app.orb.burst(top.isIncome ? top.income.rgb : top.category.rgb)
-        app.confetti += 1
 
-        let incomeCount = items.filter(\.isIncome).count
-        let label: String
+        let net = items.filter { $0.currency == currency }.reduce(0) { $0 + ($1.isIncome ? $1.amount : -$1.amount) }
+        let message: String
         if items.count == 1 {
-            label = top.isIncome ? "Пришло: \(top.note)" : "Записал: \(top.note)"
-        } else if incomeCount == items.count {
-            label = "Записал \(items.count) \(plural(items.count, "поступление", "поступления", "поступлений"))"
+            let name = top.sub.isEmpty ? top.kindName : top.sub
+            let amount = (top.isIncome ? "+" : "") + Money.format(top.amount, top.currency)
+            let who = top.people.isEmpty ? "" : " · с " + top.people.map { Tags.instrumental($0) }.joined(separator: ", ")
+            message = "\(name) · \(amount)\(who)"
         } else {
-            label = "Записал \(items.count) \(plural(items.count, "запись", "записи", "записей"))"
+            message = "Записал \(items.count) \(plural(items.count, "запись", "записи", "записей")) · \(Money.signed(net, currency))"
         }
         let ctx = context
-        app.showToast("\(label) · \(Money.signed(draftNet, currency))", undo: {
+        app.showToast(message, undo: {
             for e in created { ctx.delete(e) }
             try? ctx.save()
         })
@@ -336,192 +265,30 @@ struct ComposeView: View {
     }
 }
 
-struct DraftRow: View {
-    @Binding var draft: DraftExpense
-    var onDelete: () -> Void
-    @ObservedObject private var tags = TagStore.shared
-    @State private var amountText = ""
-    @State private var pop = 0
-    @State private var askSub = false
-    @State private var newSub = ""
-    @State private var askPerson = false
-    @State private var newPerson = ""
+/// Quiet bars that follow the voice level
+struct Waveform: View {
+    let level: Double
+    let active: Bool
+    @State private var smooth: Double = 0
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            categoryMenu {
-                ItemIcon(symbol: draft.symbol, color: draft.color)
-                    .symbolEffect(.bounce, value: pop)
-            }
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 6) {
-                    TextField(draft.isIncome ? "Что пришло" : "Что купил", text: $draft.note)
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Color.ink)
-                    Text(draft.isIncome ? "+" : "−")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(draft.isIncome ? Color.good : Color.muted)
-                    TextField("0", text: $amountText)
-                        .keyboardType(.decimalPad)
-                        .multilineTextAlignment(.trailing)
-                        .font(.system(size: 16, weight: .bold))
-                        .monospacedDigit()
-                        .foregroundStyle(draft.isIncome ? Color.good : Color.ink)
-                        .frame(width: 84)
-                        .onChange(of: amountText) { _, v in draft.amount = Money.parse(v) }
-                    Text(CurrencyInfo.get(draft.currency).symbol)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Color.muted)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        Button {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                                let wasDefault = isDefaultNote
-                                draft.isIncome.toggle()
-                                draft.sub = ""
-                                draft.edited = true
-                                if wasDefault { draft.note = draft.kindName }
-                                pop += 1
-                            }
-                        } label: {
-                            Chip(title: draft.isIncome ? "Доход" : "Трата", color: draft.isIncome ? .good : .warm)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("Переключить трату и доход")
-
-                        categoryMenu { Chip(title: draft.kindName, color: draft.color) }
-
-                        subMenu
-
-                        DatePicker("Дата", selection: $draft.date, in: ...Date(), displayedComponents: .date)
-                            .labelsHidden()
-                            .datePickerStyle(.compact)
-                            .fixedSize()
-                    }
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(peopleChoices, id: \.self) { name in
-                            let on = draft.people.contains(name)
-                            Button {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    if on { draft.people.removeAll { $0 == name } } else { draft.people.append(name) }
-                                }
-                            } label: {
-                                Chip(title: on ? "с " + Tags.instrumental(name) : name,
-                                     symbol: on ? "heart.fill" : "heart", color: .bubble, filled: on)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        Button { newPerson = ""; askPerson = true } label: {
-                            Chip(title: "Кто-то ещё", symbol: "person.badge.plus", color: .bubble, filled: false)
-                        }
-                        .buttonStyle(.plain)
-
-                        Button(action: onDelete) {
-                            Chip(title: "Убрать", symbol: "xmark", color: .muted, filled: false)
-                        }
-                        .buttonStyle(.plain)
-                    }
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !active)) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            Canvas { gc, size in
+                let n = 28
+                let gap: CGFloat = 4
+                let w = (size.width - gap * CGFloat(n - 1)) / CGFloat(n)
+                for i in 0..<n {
+                    let phase = sin(t * 7 + Double(i) * 0.55) * 0.5 + 0.5
+                    let shape = sin(Double(i) / Double(n - 1) * .pi)
+                    let energy = active ? max(0.12, smooth) : 0.06
+                    let h = max(3, size.height * CGFloat(energy * shape * (0.45 + 0.55 * phase)))
+                    let rect = CGRect(x: CGFloat(i) * (w + gap), y: (size.height - h) / 2, width: w, height: h)
+                    gc.fill(Path(roundedRect: rect, cornerRadius: w / 2), with: .color(Color.ink.opacity(0.75)))
                 }
             }
         }
-        .padding(12)
-        .background(Color.appBG, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onAppear { amountText = Money.plain(draft.amount) }
-        .alert("Новая подкатегория", isPresented: $askSub) {
-            TextField("Например, Столовая", text: $newSub)
-            Button("Добавить") {
-                let s = Tags.capitalized(newSub.trimmingCharacters(in: .whitespaces))
-                guard !s.isEmpty else { return }
-                draft.sub = s
-                draft.edited = true
-                tags.registerSub(isIncome: draft.isIncome, group: draft.groupID, sub: s)
-                pop += 1
-            }
-            Button("Отмена", role: .cancel) {}
-        } message: {
-            Text("Внутри «\(draft.kindName)». Я запомню её и дальше буду раскладывать такие траты сам.")
-        }
-        .alert("С кем была трата?", isPresented: $askPerson) {
-            TextField("Имя", text: $newPerson)
-            Button("Добавить") {
-                if let name = tags.addPerson(newPerson), !draft.people.contains(name) {
-                    draft.people.append(name)
-                }
-            }
-            Button("Отмена", role: .cancel) {}
-        }
-    }
-
-    private var peopleChoices: [String] {
-        Tags.uniq(tags.people.map(\.name) + draft.people)
-    }
-
-    private var isDefaultNote: Bool {
-        draft.note.isEmpty
-            || SpendCategory.allCases.contains { $0.name == draft.note }
-            || IncomeSource.allCases.contains { $0.name == draft.note }
-    }
-
-    private var subMenu: some View {
-        let options = Tags.uniq(tags.subs(isIncome: draft.isIncome, group: draft.groupID) + (draft.sub.isEmpty ? [] : [draft.sub]))
-        return Menu {
-            Button {
-                draft.sub = ""
-                draft.edited = true
-            } label: {
-                if draft.sub.isEmpty { Label("Без уточнения", systemImage: "checkmark") } else { Text("Без уточнения") }
-            }
-            ForEach(options, id: \.self) { name in
-                Button {
-                    draft.sub = name
-                    draft.edited = true
-                    pop += 1
-                } label: {
-                    if draft.sub == name { Label(name, systemImage: "checkmark") } else { Text(name) }
-                }
-            }
-            Divider()
-            Button { newSub = ""; askSub = true } label: { Label("Новая подкатегория…", systemImage: "plus") }
-        } label: {
-            Chip(title: draft.sub.isEmpty ? "Уточнить" : draft.sub,
-                 symbol: draft.sub.isEmpty ? "plus" : "tag.fill",
-                 color: draft.color, filled: !draft.sub.isEmpty)
-        }
-    }
-
-    private func categoryMenu<L: View>(@ViewBuilder label: () -> L) -> some View {
-        Menu {
-            if draft.isIncome {
-                ForEach(IncomeSource.allCases) { s in
-                    Button {
-                        let wasDefault = isDefaultNote
-                        draft.income = s
-                        draft.sub = ""
-                        draft.edited = true
-                        if wasDefault { draft.note = s.name }
-                        pop += 1
-                    } label: { Label(s.name, systemImage: s.symbol) }
-                }
-            } else {
-                ForEach(SpendCategory.allCases) { c in
-                    Button {
-                        let wasDefault = isDefaultNote
-                        draft.category = c
-                        draft.sub = ""
-                        draft.edited = true
-                        if wasDefault { draft.note = c.name }
-                        pop += 1
-                    } label: { Label(c.name, systemImage: c.symbol) }
-                }
-            }
-        } label: {
-            label()
-        }
+        .onChange(of: level) { _, v in smooth = smooth * 0.6 + v * 0.4 }
+        .accessibilityHidden(true)
     }
 }

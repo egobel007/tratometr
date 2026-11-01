@@ -15,18 +15,18 @@ struct RootView: View {
         let incomes = all.filter { $0.isIncome }
 
         ZStack(alignment: .bottom) {
-            AppBackground()
+            Color.appBG.ignoresSafeArea()
 
             Group {
                 switch app.tab {
                 case .home: HomeView(spends: spends, incomes: incomes, isDemo: isDemo)
-                case .balance: BalanceView(spends: spends, incomes: incomes, isDemo: isDemo)
                 case .stats: StatsView(items: spends, isDemo: isDemo)
+                case .balance: BalanceView(spends: spends, incomes: incomes, isDemo: isDemo)
                 case .history: HistoryView(items: all, isDemo: isDemo)
                 }
             }
             .transition(.asymmetric(
-                insertion: .opacity.combined(with: .modifier(active: Tilt3D(angle: 9, offset: 14),
+                insertion: .opacity.combined(with: .modifier(active: Tilt3D(angle: 8, offset: 12),
                                                              identity: Tilt3D(angle: 0, offset: 0))),
                 removal: .opacity))
 
@@ -34,20 +34,17 @@ struct RootView: View {
 
             if let toast = app.toast {
                 ToastView(message: toast)
-                    .padding(.bottom, 96)
+                    .padding(.bottom, 92)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(2)
             }
-
-            ConfettiBurst(trigger: app.confetti)
-                .zIndex(3)
         }
         .environmentObject(app)
         .sheet(item: $app.compose) { start in
             ComposeView(speech: app.speech, start: start)
                 .environmentObject(app)
                 .presentationDetents([.medium, .large])
-                .presentationCornerRadius(30)
+                .presentationCornerRadius(28)
                 .presentationBackground(Color.surface)
                 .presentationDragIndicator(.visible)
         }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum ComposeStart: String, Identifiable {
-    case voice, text, scan, gallery, income
+    case voice, text, scan, gallery
     var id: String { rawValue }
 }
 
@@ -21,7 +21,6 @@ final class AppState: ObservableObject {
     @Published var showSettings = false
     @Published var toast: ToastMessage?
     @Published var mood: OrbMood = .idle
-    @Published var confetti = 0
 
     let orb = OrbEngine()
     let speech = SpeechRecognizer()

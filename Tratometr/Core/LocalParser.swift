@@ -79,6 +79,7 @@ enum LocalParser {
     static func findAmount(_ chunk: String) -> Double? {
         let s = chunk
             .replacingRegex(#"(\d)[\s  ](?=\d{3}(?!\d))"#, with: "$1")
+            .replacingRegex(#"(\d)\.(?=\d{3}(?!\d))"#, with: "$1")
             .replacingRegex(#"(\d),(\d)"#, with: "$1.$2")
         let tokens = s.components(separatedBy: .whitespacesAndNewlines)
             .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "«»\"()!?:")) }
@@ -154,16 +155,24 @@ enum LocalParser {
     }
 
     static func detectCategory(_ s: String) -> SpendCategory {
-        let text = s.lowercased().replacingOccurrences(of: "ё", with: "е")
+        let text = Tags.norm(s)
+        let tokens = Tags.words(text)
         var best = SpendCategory.other
         var score = 0
         for c in SpendCategory.allCases {
-            for k in c.keywords where text.contains(k) && k.count > score {
+            for k in c.keywords where k.count > score && Tags.hits(k, tokens: tokens, text: text) {
                 best = c
                 score = k.count
             }
         }
-        return best
+        if best != .other { return best }
+        // tolerate one wrong letter from speech recognition: «ристоран», «аптэка»
+        for t in tokens where t.count >= 5 {
+            for c in SpendCategory.allCases {
+                for k in c.keywords where k.count >= 5 && !k.contains(" ") && Tags.close(t, k) { return c }
+            }
+        }
+        return .other
     }
 
     static func note(_ chunk: String, _ cat: SpendCategory) -> String {

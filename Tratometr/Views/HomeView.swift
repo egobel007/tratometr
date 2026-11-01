@@ -21,43 +21,32 @@ struct HomeView: View {
         let week = Stats.total(Stats.filter(main, Stats.interval(.week, offset: 0)))
         let month = Stats.total(Stats.filter(main, monthIv))
         let monthIn = Stats.total(Stats.filter(mainIn, monthIv))
-        let together = Stats.people(Stats.filter(main, monthIv))
         let dayOfMonth = Double(RuDate.cal.component(.day, from: Date()))
         let recent = (spends + incomes).sorted { $0.date > $1.date }.prefix(6)
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ScreenTitle(eyebrow: RuDate.headerToday(), title: RuDate.greeting() + "!")
+                ScreenTitle(eyebrow: RuDate.headerToday(), title: "Тратометр", showSettings: true)
 
                 if isDemo { DemoBanner().padding(.bottom, 12).riseIn(0) }
 
                 HeroCard(today: Stats.total(todayItems), count: todayItems.count, week: week, month: month,
-                         average: month / dayOfMonth, budget: budget, currency: currency, motion: app.motion)
+                         average: month / dayOfMonth, monthIncome: monthIn, budget: budget,
+                         currency: currency, motion: app.motion)
+                    .onTapGesture { if monthIn > 0 { app.go(.balance) } }
                     .riseIn(0.02)
-
-                MonthStrip(income: monthIn, spent: month, currency: currency)
-                    .padding(.top, 12)
-                    .onTapGesture { app.go(.balance) }
-                    .riseIn(0.06)
-
-                ForEach(together.prefix(2)) { p in
-                    TogetherStrip(person: p, monthTotal: month, currency: currency)
-                        .padding(.top, 10)
-                        .onTapGesture { app.go(.stats) }
-                        .riseIn(0.08)
-                }
 
                 orbBlock.riseIn(0.1)
 
                 HStack {
-                    Text("Последние").font(.system(size: 19, weight: .bold, design: .rounded)).foregroundStyle(Color.ink)
+                    Text("Последние").font(.headline).fontWidth(.expanded).foregroundStyle(Color.ink)
                     Spacer()
                     Button("Все") { app.go(.history) }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(Color.violet)
+                        .font(.subheadline)
+                        .foregroundStyle(Color.muted)
                 }
-                .padding(.top, 14)
-                .padding(.bottom, 2)
+                .padding(.top, 18)
+                .padding(.bottom, 4)
                 .riseIn(0.16)
 
                 VStack(spacing: 0) {
@@ -66,13 +55,10 @@ struct HomeView: View {
                             .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(Color.surface.opacity(0.75), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                 .riseIn(0.2)
             }
             .padding(.horizontal, 16)
-            .padding(.bottom, 130)
+            .padding(.bottom, 120)
         }
         .scrollIndicators(.hidden)
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
@@ -80,16 +66,16 @@ struct HomeView: View {
 
     private var caption: String {
         switch app.mood {
-        case .idle: return "Нажми на шар и скажи, что потратил или сколько пришло"
+        case .idle: return "Нажми на шар и скажи, на что потратил"
         case .listen: return "Слушаю…"
-        case .think: return "Думаю…"
+        case .think: return "Записываю…"
         }
     }
 
     private var orbBlock: some View {
         VStack(spacing: 6) {
-            OrbView(engine: app.orb, paused: app.tab != .home)
-                .frame(width: 260, height: 260)
+            OrbView(engine: app.orb, paused: app.tab != .home || app.compose != nil)
+                .frame(width: 280, height: 280)
                 .contentShape(Circle())
                 .onTapGesture {
                     orbTaps += 1
@@ -101,9 +87,8 @@ struct HomeView: View {
                 .accessibilityAddTraits(.isButton)
 
             Text(caption)
-                .font(.subheadline.weight(.medium))
+                .font(.subheadline)
                 .foregroundStyle(Color.muted)
-                .multilineTextAlignment(.center)
                 .contentTransition(.opacity)
                 .animation(.easeInOut, value: app.mood)
 
@@ -112,17 +97,15 @@ struct HomeView: View {
                     Button { app.compose = .scan } label: { Label("Сфотографировать чек", systemImage: "doc.viewfinder") }
                     Button { app.compose = .gallery } label: { Label("Выбрать из галереи", systemImage: "photo.on.rectangle") }
                 } label: {
-                    PillLabel(title: "Чек", symbol: "camera.fill", tint: .sky)
+                    PillLabel(title: "Фото чека", symbol: "camera")
                 }
-                Button { app.compose = .text } label: { PillLabel(title: "Написать", symbol: "keyboard.fill", tint: .violet) }
-                    .buttonStyle(PressScale())
-                Button { app.compose = .income } label: { PillLabel(title: "Доход", symbol: "plus.circle.fill", tint: .good) }
+                Button { app.compose = .text } label: { PillLabel(title: "Написать", symbol: "keyboard") }
                     .buttonStyle(PressScale())
             }
             .padding(.top, 6)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
     }
 
     private func open(_ item: SpendItem) {
@@ -134,7 +117,7 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Sunny gradient card with today's spending
+// MARK: - White card with today's spending
 
 struct HeroCard: View {
     let today: Double
@@ -142,6 +125,7 @@ struct HeroCard: View {
     let week: Double
     let month: Double
     let average: Double
+    let monthIncome: Double
     let budget: Double
     let currency: String
     @ObservedObject var motion: MotionManager
@@ -150,39 +134,37 @@ struct HeroCard: View {
     var body: some View {
         let tx = reduceMotion ? 0 : Double(motion.tilt.width)
         let ty = reduceMotion ? 0 : Double(motion.tilt.height)
+        let net = monthIncome - month
 
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Потрачено сегодня")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .textCase(.uppercase)
-                    .tracking(0.9)
+                Text("Потрачено сегодня").eyebrow()
                 Spacer()
-                if count > 0 {
-                    Text(purchases(count))
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.22), in: Capsule())
-                }
+                if count > 0 { Text(purchases(count)).eyebrow() }
             }
-            .foregroundStyle(Color.white.opacity(0.9))
-
             Text(Money.format(today, currency))
-                .font(.system(size: 46, weight: .heavy, design: .rounded))
-                .foregroundStyle(Color.white)
+                .font(.system(size: 44, weight: .semibold))
+                .fontWidth(.expanded)
+                .foregroundStyle(Color.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
                 .contentTransition(.numericText(value: today))
                 .animation(.snappy, value: today)
-                .padding(.top, 4)
-                .padding(.bottom, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 16)
 
-            HStack(alignment: .top, spacing: 8) {
-                stat("Неделя", week)
-                stat("Месяц", month)
-                stat("В день", average)
+            Rectangle().fill(Color.line).frame(height: 1)
+
+            HStack(alignment: .top, spacing: 10) {
+                stat("Неделя", Money.format(week, currency), .ink)
+                stat("Месяц", Money.format(month, currency), .ink)
+                if monthIncome > 0 {
+                    stat("Остаток", Money.signed(net, currency), net >= 0 ? .good : .bad)
+                } else {
+                    stat("В среднем/день", Money.format(average, currency), .ink)
+                }
             }
+            .padding(.top, 14)
 
             if budget > 0 {
                 BudgetBar(spent: month, budget: budget, currency: currency)
@@ -191,40 +173,31 @@ struct HeroCard: View {
         }
         .padding(20)
         .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 30, style: .continuous).fill(Palette.hero)
-                Circle().fill(Color.white.opacity(0.18)).frame(width: 180).offset(x: 140, y: -70).blur(radius: 2)
-                Circle().fill(Color.sun.opacity(0.35)).frame(width: 140).offset(x: -150, y: 80).blur(radius: 30)
-                RoundedRectangle(cornerRadius: 30, style: .continuous)
-                    .fill(RadialGradient(colors: [Color.white.opacity(0.45), Color.white.opacity(0)],
-                                         center: UnitPoint(x: 0.3 + tx * 0.9, y: 0.15 + ty * 0.9),
-                                         startRadius: 0, endRadius: 240))
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            RoundedRectangle(cornerRadius: 28, style: .continuous)
+                .fill(Color.surface)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .fill(RadialGradient(colors: [Color.white.opacity(0.45), Color.white.opacity(0)],
+                                             center: UnitPoint(x: 0.3 + tx * 0.9, y: 0.15 + ty * 0.9),
+                                             startRadius: 0, endRadius: 260))
+                        .blendMode(.softLight)
+                }
         }
-        .shadow(color: Color.bubble.opacity(0.35), radius: 22, y: 12)
+        .shadow(color: .black.opacity(0.07), radius: 18, y: 8)
         .rotation3DEffect(.degrees(ty * 12), axis: (x: 1, y: 0, z: 0), perspective: 0.6)
         .rotation3DEffect(.degrees(-tx * 12), axis: (x: 0, y: 1, z: 0), perspective: 0.6)
     }
 
-    private func stat(_ title: String, _ value: Double) -> some View {
+    private func stat(_ title: String, _ value: String, _ color: Color) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Color.white.opacity(0.8))
-                .lineLimit(1)
-            Text(Money.format(value, currency))
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.white)
+            Text(title).font(.caption).foregroundStyle(Color.muted).lineLimit(1).minimumScaleFactor(0.8)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .contentTransition(.numericText(value: value))
-                .animation(.snappy, value: value)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -232,7 +205,6 @@ struct BudgetBar: View {
     let spent: Double
     let budget: Double
     let currency: String
-    @State private var shown = false
 
     var body: some View {
         let cal = RuDate.cal
@@ -243,114 +215,23 @@ struct BudgetBar: View {
         let timePct = (day - 0.5) / daysInMonth
         let left = budget - spent
         let perDay = left / (daysInMonth - day + 1)
+        let color: Color = pct > 1 ? .bad : (pct > timePct * 1.1 ? .warn : .good)
 
         VStack(alignment: .leading, spacing: 7) {
             HStack {
                 Text("Бюджет \(Money.format(budget, currency))")
                 Spacer(minLength: 6)
-                Text(left >= 0 ? "можно ≈ \(Money.format(perDay, currency)) в день" : "перерасход \(Money.format(-left, currency))")
-                    .bold()
+                if left >= 0 {
+                    Text("≈ \(Money.format(perDay, currency)) в день").foregroundStyle(Color.ink)
+                } else {
+                    Text("перерасход \(Money.format(-left, currency))").foregroundStyle(Color.bad)
+                }
             }
             .font(.caption)
-            .foregroundStyle(Color.white.opacity(0.92))
+            .foregroundStyle(Color.muted)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
-
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.white.opacity(0.25))
-                    Capsule().fill(Color.white).frame(width: geo.size.width * min(1, shown ? pct : 0))
-                    Capsule()
-                        .fill(Color.white.opacity(0.7))
-                        .frame(width: 3, height: 14)
-                        .offset(x: geo.size.width * min(1, timePct) - 1.5)
-                }
-            }
-            .frame(height: 8)
+            ThinBar(value: pct, color: color, height: 6)
         }
-        .onAppear { withAnimation(.spring(response: 1, dampingFraction: 0.85).delay(0.3)) { shown = true } }
-    }
-}
-
-/// "October: +90 000 in, −51 600 out, +38 400 left"
-struct MonthStrip: View {
-    let income: Double
-    let spent: Double
-    let currency: String
-
-    var body: some View {
-        let net = income - spent
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(RuDate.monthName(Date())).eyebrow()
-                HStack(spacing: 10) {
-                    Label(Money.format(income, currency), systemImage: "arrow.down.circle.fill")
-                        .foregroundStyle(Color.good)
-                    Label(Money.format(spent, currency), systemImage: "arrow.up.circle.fill")
-                        .foregroundStyle(Color.warm)
-                }
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 4) {
-                Text(net >= 0 ? "в плюсе" : "в минусе")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color.muted)
-                Text(Money.signed(net, currency))
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(net >= 0 ? Color.good : Color.bad)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(Color.faint)
-        }
-        .card()
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Открыть баланс")
-    }
-}
-
-/// "♥ С Ариной в ноябре: 12 400 ₽ · 18% трат"
-struct TogetherStrip: View {
-    let person: PersonTotal
-    let monthTotal: Double
-    let currency: String
-
-    var body: some View {
-        let share = monthTotal > 0 ? Int((person.amount / monthTotal * 100).rounded()) : 0
-        HStack(spacing: 12) {
-            Image(systemName: "heart.fill")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 42, height: 42)
-                .background(LinearGradient(colors: [Color.bubble, Color.violet], startPoint: .topLeading, endPoint: .bottomTrailing),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .shadow(color: Color.bubble.opacity(0.35), radius: 6, y: 3)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(person.withName) в \(RuDate.monthsPrep[RuDate.parts(Date()).month])").eyebrow()
-                Text(Money.format(person.amount, currency))
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color.ink)
-            }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(share)%")
-                    .font(.system(size: 18, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color.bubble)
-                Text("всех трат").font(.caption.weight(.semibold)).foregroundStyle(Color.muted)
-            }
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(Color.faint)
-        }
-        .card()
-        .contentShape(Rectangle())
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Открыть аналитику")
     }
 }

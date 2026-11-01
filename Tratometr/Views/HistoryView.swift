@@ -10,7 +10,6 @@ struct HistoryView: View {
     @Query(sort: \Expense.date, order: .reverse) private var records: [Expense]
     @AppStorage("currency") private var currency = "RUB"
     @State private var query = ""
-    @State private var filter = 0   // 0 all, 1 spending, 2 income
     @State private var editing: Expense?
 
     private struct DayGroup: Identifiable {
@@ -20,10 +19,9 @@ struct HistoryView: View {
     }
 
     var body: some View {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let byKind = items.filter { filter == 0 || (filter == 1 && !$0.isIncome) || (filter == 2 && $0.isIncome) }
-        let filtered = q.isEmpty ? byKind : byKind.filter {
-            $0.note.lowercased().contains(q) || $0.kindName.lowercased().contains(q) || $0.sub.lowercased().contains(q)
+        let q = Tags.norm(query.trimmingCharacters(in: .whitespaces))
+        let filtered = q.isEmpty ? items : items.filter {
+            Tags.norm($0.note).contains(q) || Tags.norm($0.kindName).contains(q) || Tags.norm($0.sub).contains(q)
                 || $0.people.contains { Tags.norm($0).hasPrefix(Tags.nameStem(q)) } || Money.plain($0.amount).contains(q)
         }
         let groups = Dictionary(grouping: filtered.prefix(600)) { RuDate.cal.startOfDay(for: $0.date) }
@@ -32,15 +30,6 @@ struct HistoryView: View {
 
         NavigationStack {
             List {
-                Picker("Показать", selection: $filter) {
-                    Text("Всё").tag(0)
-                    Text("Траты").tag(1)
-                    Text("Доходы").tag(2)
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-
                 if isDemo {
                     DemoBanner()
                         .listRowBackground(Color.clear)
@@ -56,7 +45,7 @@ struct HistoryView: View {
                         ForEach(g.items) { item in
                             Button { open(item) } label: { ExpenseRow(item: item, showDate: false) }
                                 .buttonStyle(.plain)
-                                .listRowBackground(Color.surface.opacity(0.7))
+                                .listRowBackground(Color.appBG)
                                 .listRowSeparatorTint(Color.line)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                     if !isDemo {
@@ -70,14 +59,13 @@ struct HistoryView: View {
                         dayHeader(g)
                     }
                 }
-                Color.clear.frame(height: 100).listRowBackground(Color.clear).listRowSeparator(.hidden)
+                Color.clear.frame(height: 90).listRowBackground(Color.clear).listRowSeparator(.hidden)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background { AppBackground() }
+            .background(Color.appBG)
             .navigationTitle("История")
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .searchable(text: $query, prompt: "Кофе, Арина, столовая, 1500")
+            .searchable(text: $query, prompt: "Кофе, Арина, 1500")
         }
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
     }
@@ -87,21 +75,12 @@ struct HistoryView: View {
         let spent = Stats.total(main.filter { !$0.isIncome })
         let came = Stats.total(main.filter { $0.isIncome })
         return HStack(spacing: 8) {
-            Text(RuDate.dayLabel(g.day))
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.ink)
+            Text(RuDate.dayLabel(g.day)).font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink)
             Spacer()
-            if came > 0 {
-                Text("+" + Money.format(came, currency))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.good)
-            }
-            if spent > 0 {
-                Text("−" + Money.format(spent, currency))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.muted)
-            }
+            if came > 0 { Text("+" + Money.format(came, currency)).foregroundStyle(Color.good) }
+            if spent > 0 { Text(Money.format(spent, currency)).foregroundStyle(Color.muted) }
         }
+        .font(.subheadline)
         .monospacedDigit()
         .textCase(nil)
     }
@@ -130,10 +109,13 @@ struct HistoryView: View {
     }
 }
 
+/// Simple form to fix a record. Changes teach the parser.
 struct EditExpenseView: View {
     let expense: Expense
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
+    @ObservedObject private var tags = TagStore.shared
+
     @State private var amountText = ""
     @State private var note = ""
     @State private var date = Date()
@@ -142,9 +124,7 @@ struct EditExpenseView: View {
     @State private var income: IncomeSource = .other
     @State private var sub = ""
     @State private var people: [String] = []
-    @State private var newPerson = ""
     @State private var confirmDelete = false
-    @ObservedObject private var tags = TagStore.shared
 
     var body: some View {
         NavigationStack {
@@ -155,77 +135,50 @@ struct EditExpenseView: View {
                         Text("Поступление").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
-                Section("Сумма") {
+                Section {
                     HStack {
-                        Text(isIncome ? "+" : "−")
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
-                            .foregroundStyle(isIncome ? Color.good : Color.muted)
                         TextField("0", text: $amountText)
                             .keyboardType(.decimalPad)
-                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .font(.system(size: 30, weight: .semibold))
+                            .fontWidth(.expanded)
                         Text(CurrencyInfo.get(expense.currency).symbol)
                             .font(.title2)
                             .foregroundStyle(Color.muted)
                     }
-                }
-                Section(isIncome ? "Что пришло" : "Что купил") {
-                    TextField("Описание", text: $note)
-                }
-                Section("Когда") {
-                    DatePicker("Дата и время", selection: $date, in: ...Date())
-                }
-                Section(isIncome ? "Откуда" : "Категория") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
-                        if isIncome {
-                            ForEach(IncomeSource.allCases) { s in
-                                tile(symbol: s.symbol, color: s.color, name: s.name, selected: income == s) { income = s }
-                            }
-                        } else {
-                            ForEach(SpendCategory.allCases) { c in
-                                tile(symbol: c.symbol, color: c.color, name: c.name, selected: category == c) { category = c }
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
+                    TextField(isIncome ? "Что пришло" : "Что купил", text: $note)
+                    DatePicker("Когда", selection: $date, in: ...Date())
                 }
                 Section {
-                    TextField("Например, Столовая", text: $sub)
-                    let options = tags.subs(isIncome: isIncome, group: isIncome ? income.rawValue : category.rawValue)
-                    if !options.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(options, id: \.self) { name in
-                                    Button { sub = sub == name ? "" : name } label: {
-                                        Chip(title: name, color: isIncome ? income.color : category.color, filled: sub == name)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
+                    if isIncome {
+                        Picker("Откуда", selection: $income) {
+                            ForEach(IncomeSource.allCases) { s in Label(s.name, systemImage: s.symbol).tag(s) }
+                        }
+                    } else {
+                        Picker("Категория", selection: $category) {
+                            ForEach(SpendCategory.allCases) { c in Label(c.name, systemImage: c.symbol).tag(c) }
                         }
                     }
-                } header: {
-                    Text("Подкатегория")
+                    Picker("Уточнение", selection: $sub) {
+                        Text("Без уточнения").tag("")
+                        ForEach(subOptions, id: \.self) { Text($0).tag($0) }
+                    }
+                    TextField("Своё уточнение", text: $sub)
                 } footer: {
-                    Text("Можно написать любую новую. Я запомню и дальше буду раскладывать такие записи сам.")
+                    Text("Я запомню исправление и дальше буду раскладывать такие записи сам.")
                 }
-                Section("С кем") {
-                    ForEach(Tags.uniq(tags.people.map(\.name) + people), id: \.self) { name in
-                        Toggle(isOn: Binding(
-                            get: { people.contains(name) },
-                            set: { on in if on { if !people.contains(name) { people.append(name) } } else { people.removeAll { $0 == name } } }
-                        )) {
-                            Label(name, systemImage: "heart.fill").foregroundStyle(Color.ink)
+                if !tags.people.isEmpty || !people.isEmpty {
+                    Section("С кем") {
+                        ForEach(Tags.uniq(tags.people.map(\.name) + people), id: \.self) { name in
+                            Toggle(name, isOn: Binding(
+                                get: { people.contains(name) },
+                                set: { on in
+                                    if on { if !people.contains(name) { people.append(name) } } else { people.removeAll { $0 == name } }
+                                }
+                            ))
                         }
-                        .tint(Color.bubble)
-                    }
-                    HStack {
-                        TextField("Добавить человека", text: $newPerson)
-                        Button("Добавить") {
-                            if let name = tags.addPerson(newPerson), !people.contains(name) { people.append(name) }
-                            newPerson = ""
-                        }
-                        .disabled(newPerson.trimmingCharacters(in: .whitespaces).count < 2)
                     }
                 }
                 Section {
@@ -260,31 +213,10 @@ struct EditExpenseView: View {
         }
     }
 
-    private func tile(symbol: String, color: Color, name: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button {
-            withAnimation(.spring(response: 0.3)) { action() }
-        } label: {
-            VStack(spacing: 6) {
-                ItemIcon(symbol: symbol, color: color, size: 38)
-                Text(name)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(Color.ink)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selected ? color.opacity(0.14) : Color.clear)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(selected ? color : Color.clear, lineWidth: 1.5)
-            )
-        }
-        .buttonStyle(.plain)
+    private var subOptions: [String] {
+        let list = tags.subs(isIncome: isIncome, group: isIncome ? income.rawValue : category.rawValue)
+        let current = sub.trimmingCharacters(in: .whitespaces)
+        return Tags.uniq(list + (current.isEmpty ? [] : [current]))
     }
 
     private func save() {
@@ -292,16 +224,18 @@ struct EditExpenseView: View {
         let cleanSub = Tags.capitalized(sub.trimmingCharacters(in: .whitespaces))
         let group = isIncome ? income.rawValue : category.rawValue
         let changed = expense.isIncome != isIncome || expense.categoryID != group || expense.subcategory != cleanSub
-        expense.subcategory = cleanSub
-        expense.people = people.joined(separator: ",")
-        tags.registerSub(isIncome: isIncome, group: group, sub: cleanSub)
-        if changed { tags.learn(note: trimmed.isEmpty ? expense.note : trimmed, isIncome: isIncome, group: group, sub: cleanSub) }
+
         expense.amount = Money.parse(amountText)
         expense.kind = isIncome ? "income" : "expense"
-        expense.categoryID = isIncome ? income.rawValue : category.rawValue
+        expense.categoryID = group
+        expense.subcategory = cleanSub
+        expense.people = people.joined(separator: ",")
         expense.note = trimmed.isEmpty ? (isIncome ? income.name : category.name) : trimmed
         expense.date = date
         try? context.save()
+
+        tags.registerSub(isIncome: isIncome, group: group, sub: cleanSub)
+        if changed { tags.learn(note: expense.note, isIncome: isIncome, group: group, sub: cleanSub) }
         dismiss()
     }
 }

@@ -9,71 +9,32 @@ struct SettingsView: View {
     @AppStorage("currency") private var currency = "RUB"
     @AppStorage("budget") private var budget: Double = 0
     @AppStorage("salary") private var salary: Double = 0
+    @ObservedObject private var tags = TagStore.shared
 
     @State private var budgetText = ""
     @State private var salaryText = ""
     @State private var apiKey = ""
-    @State private var confirmWipe = false
-    @State private var csvURL: URL?
     @State private var newPerson = ""
+    @State private var confirmWipe = false
     @State private var confirmForget = false
-    @ObservedObject private var tags = TagStore.shared
+    @State private var csvURL: URL?
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     Picker("Валюта", selection: $currency) {
-                        ForEach(CurrencyInfo.all) { c in
-                            Text("\(c.symbol)  \(c.code)").tag(c.code)
-                        }
+                        ForEach(CurrencyInfo.all) { c in Text("\(c.symbol)  \(c.code)").tag(c.code) }
                     }
-                } header: {
-                    Text("Основная валюта")
+                    amountField("Зарплата в месяц", text: $salaryText)
+                    amountField("Бюджет на траты", text: $budgetText)
                 } footer: {
-                    Text("Итоги и аналитика считаются в основной валюте. Записи в других валютах видны в истории.")
-                }
-
-                Section {
-                    HStack {
-                        TextField("Например, 150 000", text: $salaryText)
-                            .keyboardType(.decimalPad)
-                        Text(CurrencyInfo.get(currency).symbol).foregroundStyle(Color.muted)
-                    }
-                } header: {
-                    Text("Зарплата в месяц")
-                } footer: {
-                    Text("Если зарплата приходит частями, во вкладке «Баланс» будет видно, сколько уже пришло и сколько ещё ждать.")
-                }
-
-                Section {
-                    HStack {
-                        TextField("Например, 60 000", text: $budgetText)
-                            .keyboardType(.decimalPad)
-                        Text(CurrencyInfo.get(currency).symbol).foregroundStyle(Color.muted)
-                    }
-                } header: {
-                    Text("Бюджет на траты в месяц")
-                } footer: {
-                    Text("Покажу, сколько можно тратить в день, и дам прогноз на конец месяца. Оставь пустым, если бюджет не нужен.")
+                    Text("Зарплату можно получать частями: в «Балансе» видно, сколько уже пришло. Бюджет покажет, сколько можно тратить в день.")
                 }
 
                 Section {
                     ForEach($tags.people) { $person in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Image(systemName: "heart.fill").foregroundStyle(Color.bubble)
-                                TextField("Имя", text: $person.name)
-                                    .font(.body.weight(.semibold))
-                            }
-                            TextField("Другие слова для неё или него: девушка, мама…", text: Binding(
-                                get: { person.aliases.joined(separator: ", ") },
-                                set: { $person.aliases.wrappedValue = $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
-                            ))
-                            .font(.footnote)
-                            .foregroundStyle(Color.muted)
-                        }
-                        .padding(.vertical, 2)
+                        TextField("Имя", text: $person.name)
                     }
                     .onDelete { tags.people.remove(atOffsets: $0) }
                     HStack {
@@ -87,69 +48,29 @@ struct SettingsView: View {
                 } header: {
                     Text("Люди")
                 } footer: {
-                    Text("Скажи «кафе с Ариной 3200» или «продукты с девушкой 2000», и трата получит отметку. В аналитике и на главной будет видно, сколько уходит на вас вместе. Новые имена после «с» я добавляю сам.")
-                }
-
-                Section {
-                    if tags.allCustomSubs.isEmpty {
-                        Text("Пока только встроенные: Столовая, Фастфуд, Ресторан, Перепродажа и другие. Новые появятся сами, когда ты их назовёшь.")
-                            .font(.footnote)
-                            .foregroundStyle(Color.muted)
-                    }
-                    ForEach(tags.allCustomSubs, id: \.self) { item in
-                        HStack {
-                            Text(item.name)
-                            Spacer()
-                            Text(groupName(item.key)).font(.caption).foregroundStyle(Color.muted)
-                        }
-                    }
-                    .onDelete { idx in
-                        let list = tags.allCustomSubs
-                        for i in idx { tags.removeCustomSub(key: list[i].key, name: list[i].name) }
-                    }
-                    if tags.ruleCount > 0 {
-                        Button("Забыть выученное (\(tags.ruleCount))", role: .destructive) { confirmForget = true }
-                    }
-                } header: {
-                    Text("Мои подкатегории")
-                } footer: {
-                    Text("Когда ты исправляешь категорию или подкатегорию, я запоминаю слово и в следующий раз раскладываю так же.")
+                    Text("Скажи «ресторан с Ариной 3200», и в аналитике будет видно, сколько уходит на вас вместе.")
                 }
 
                 Section {
                     SecureField("sk-ant-…", text: $apiKey)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Link(destination: URL(string: "https://console.anthropic.com/settings/keys")!) {
-                        Label("Где взять ключ", systemImage: "arrow.up.right.square")
-                    }
+                    Link("Где взять ключ", destination: URL(string: "https://console.anthropic.com/settings/keys")!)
                 } header: {
                     Text("Claude, по желанию")
                 } footer: {
-                    Text("Без ключа всё работает прямо на телефоне. С ключом Claude точнее понимает сложные фразы и мятые чеки и пишет личный разбор трат. Ключ хранится в связке ключей iPhone, оплата по факту использования на console.anthropic.com.")
+                    Text("Без ключа всё работает на телефоне. С ключом сложные фразы и чеки разбирает Claude, и в аналитике появляется разбор трат.")
                 }
 
                 Section("Данные") {
                     if let csvURL, !items.isEmpty {
-                        ShareLink(item: csvURL) {
-                            Label("Выгрузить в CSV", systemImage: "square.and.arrow.up")
-                        }
+                        ShareLink("Выгрузить в CSV", item: csvURL)
                     }
-                    Button(role: .destructive) { confirmWipe = true } label: {
-                        Label("Удалить все записи", systemImage: "trash")
+                    if tags.ruleCount > 0 {
+                        Button("Забыть мои исправления категорий") { confirmForget = true }
                     }
-                    .disabled(items.isEmpty)
-                }
-
-                Section("Как пользоваться") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Нажми на шар или микрофон и скажи как есть: «кофе 280, обед в столовой 450, вчера ужин с Ариной 3200». Поступления так же: «пришло 40 000, часть зарплаты», «перепродал кроссовки за 12 тысяч».")
-                        Text("Чек: кнопка «Чек», затем «Сфотографировать чек». Камера сама найдёт края и прочитает итог.")
-                        Text("Любую запись можно поправить или удалить, нажав на неё. В истории работает свайп влево.")
-                    }
-                    .font(.footnote)
-                    .foregroundStyle(Color.muted)
-                    .padding(.vertical, 4)
+                    Button("Удалить все записи", role: .destructive) { confirmWipe = true }
+                        .disabled(items.isEmpty)
                 }
             }
             .navigationTitle("Настройки")
@@ -159,7 +80,7 @@ struct SettingsView: View {
                     Button("Готово") { persist(); dismiss() }
                 }
             }
-            .confirmationDialog("Забыть все исправления, которые я запомнил?", isPresented: $confirmForget, titleVisibility: .visible) {
+            .confirmationDialog("Забыть все исправления категорий?", isPresented: $confirmForget, titleVisibility: .visible) {
                 Button("Забыть", role: .destructive) { tags.forgetRules() }
             }
             .confirmationDialog("Удалить все траты и поступления? Это нельзя отменить.", isPresented: $confirmWipe, titleVisibility: .visible) {
@@ -179,11 +100,16 @@ struct SettingsView: View {
         .onDisappear(perform: persist)
     }
 
-    private func groupName(_ key: String) -> String {
-        let parts = key.split(separator: ":").map(String.init)
-        guard parts.count == 2 else { return "" }
-        if parts[0] == "income" { return IncomeSource(rawValue: parts[1])?.name ?? "" }
-        return SpendCategory(rawValue: parts[1])?.name ?? ""
+    private func amountField(_ title: String, text: Binding<String>) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField("0", text: text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: 140)
+            Text(CurrencyInfo.get(currency).symbol).foregroundStyle(Color.muted)
+        }
     }
 
     private func persist() {

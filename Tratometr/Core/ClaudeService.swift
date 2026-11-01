@@ -137,6 +137,22 @@ struct ClaudeService {
         return try await send(prompt, model: Self.smartModel, maxTokens: 900)
     }
 
+    /// Claude sometimes answers "restaurant" or "Кафе и рестораны" instead of an id
+    static func resolveCategory(_ raw: String) -> SpendCategory {
+        let n = Tags.norm(raw).trimmingCharacters(in: .whitespaces)
+        if let c = SpendCategory.allCases.first(where: { Tags.norm($0.name) == n }) { return c }
+        let synonyms: [String: SpendCategory] = [
+            "restaurant": .cafe, "restaurants": .cafe, "food_out": .cafe, "eating_out": .cafe, "dining": .cafe,
+            "groceries": .food, "grocery": .food, "products": .food, "snacks": .coffee, "cafe_coffee": .coffee,
+            "transportation": .transport, "fuel": .transport, "cab": .taxi, "housing": .home, "utilities": .home,
+            "subscriptions": .subs, "phone": .subs, "medicine": .health, "pharmacy": .health, "clothing": .clothes,
+            "entertainment": .fun, "shopping": .shop, "electronics": .shop, "trip": .travel, "gift": .gifts,
+            "education": .sport, "fitness": .sport
+        ]
+        if let c = synonyms[n] { return c }
+        return LocalParser.detectCategory(n)
+    }
+
     static func drafts(from reply: String, source: String, raw: String, currency: String) -> [DraftExpense] {
         guard let s = reply.firstIndex(of: "["), let e = reply.lastIndex(of: "]"), s < e,
               let data = String(reply[s...e]).data(using: .utf8),
@@ -151,7 +167,7 @@ struct ClaudeService {
             if !CurrencyInfo.all.contains(where: { $0.code == cur }) { cur = currency }
             let catID = (o["category"] as? String) ?? ""
             let isIncome = (o["type"] as? String) == "income" || (SpendCategory(rawValue: catID) == nil && IncomeSource(rawValue: catID) != nil)
-            let cat = SpendCategory(rawValue: catID) ?? .other
+            let cat = SpendCategory(rawValue: catID) ?? resolveCategory(catID)
             let src = IncomeSource(rawValue: catID) ?? .other
             var days = (o["daysAgo"] as? NSNumber)?.intValue ?? 0
             if days < 0 || days > 400 { days = 0 }

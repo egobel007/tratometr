@@ -9,11 +9,10 @@ struct StatsView: View {
 
     @AppStorage("currency") private var currency = "RUB"
     @AppStorage("budget") private var budget: Double = 0
-    @Query(sort: \Expense.date, order: .reverse) private var expenses: [Expense]
+    @Query(sort: \Expense.date, order: .reverse) private var records: [Expense]
 
     @State private var period: Period = .week
     @State private var offset = 0
-    @AppStorage("stats_detailed") private var detailed = false
     @State private var selected: String?
     @State private var openPerson: String?
     @State private var angle: Double?
@@ -30,9 +29,8 @@ struct StatsView: View {
         let previous = Stats.filter(main, Stats.interval(period, offset: offset - 1))
         let total = Stats.total(current)
         let ptotal = Stats.total(previous)
-        let cats = Stats.slices(current, detailed: detailed)
-        let prevByCat = Dictionary(uniqueKeysWithValues: Stats.slices(previous, detailed: detailed).map { ($0.id, $0.amount) })
-        let otherCurrency = Stats.filter(items, iv).filter { $0.currency != currency }.count
+        let cats = Stats.slices(current, detailed: false)
+        let prevByCat = Dictionary(uniqueKeysWithValues: Stats.slices(previous, detailed: false).map { ($0.id, $0.amount) })
 
         ScrollView {
             VStack(spacing: 12) {
@@ -47,7 +45,7 @@ struct StatsView: View {
 
                 periodNav
 
-                summaryBlock(total: total, ptotal: ptotal, count: current.count, iv: iv, otherCurrency: otherCurrency)
+                summaryBlock(total: total, ptotal: ptotal, count: current.count, iv: iv)
 
                 categoryCard(cats: cats, total: total, prevByCat: prevByCat, ptotal: ptotal, current: current)
 
@@ -66,7 +64,6 @@ struct StatsView: View {
         .onAppear { replay() }
         .onChange(of: period) { _, _ in offset = 0; resetSelection(); replay() }
         .onChange(of: offset) { _, _ in resetSelection(); replay() }
-        .onChange(of: detailed) { _, _ in selected = nil; angle = nil; replay() }
         .onChange(of: angle) { _, a in
             guard let a else { return }
             var acc = 0.0
@@ -81,7 +78,7 @@ struct StatsView: View {
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
     }
 
-    // MARK: header pieces
+    // MARK: header
 
     private var periodNav: some View {
         HStack {
@@ -113,7 +110,7 @@ struct StatsView: View {
         .buttonStyle(PressScale())
     }
 
-    private func summaryBlock(total: Double, ptotal: Double, count: Int, iv: DateInterval, otherCurrency: Int) -> some View {
+    private func summaryBlock(total: Double, ptotal: Double, count: Int, iv: DateInterval) -> some View {
         VStack(spacing: 8) {
             Text(Money.format(total, currency))
                 .font(.system(size: 40, weight: .semibold))
@@ -127,10 +124,9 @@ struct StatsView: View {
             if ptotal > 0 && total > 0 {
                 let ch = (total - ptotal) / ptotal
                 let flat = abs(ch) < 0.03
-                let color: Color = flat ? .muted : (ch > 0 ? .bad : .good)
                 Text(flat ? "примерно как по \(period.prevPhrase)" : "\(ch > 0 ? "↑" : "↓") \(Int((abs(ch) * 100).rounded()))% к \(period.prevPhrase)")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(color)
+                    .foregroundStyle(flat ? Color.muted : (ch > 0 ? Color.bad : Color.good))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Color.surface, in: Capsule())
@@ -141,9 +137,7 @@ struct StatsView: View {
                     Text("В этом периоде трат нет")
                 } else {
                     let days = Double(Stats.elapsedDays(iv))
-                    let perDay = period == .day ? "" : " · \(Money.format(total / days, currency)) в день"
-                    let other = otherCurrency > 0 ? " · ещё \(otherCurrency) в другой валюте" : ""
-                    Text(purchases(count) + perDay + other)
+                    Text(purchases(count) + (period == .day ? "" : " · \(Money.format(total / days, currency)) в день"))
                 }
             }
             .font(.footnote)
@@ -157,16 +151,7 @@ struct StatsView: View {
 
     private func categoryCard(cats: [Slice], total: Double, prevByCat: [String: Double], ptotal: Double, current: [SpendItem]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("По категориям").font(.system(size: 17, weight: .bold, design: .rounded)).foregroundStyle(Color.ink)
-                Spacer()
-                Picker("Вид", selection: $detailed) {
-                    Text("Группы").tag(false)
-                    Text("Подробно").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
-            }
+            SectionTitle(text: "По категориям")
 
             ZStack {
                 if cats.isEmpty {
@@ -188,7 +173,8 @@ struct StatsView: View {
                     let sel = selected.flatMap { s in cats.first { $0.id == s } }
                     let selAmount = sel?.amount ?? total
                     Text(Money.format(selAmount, currency))
-                        .font(.system(size: 19, weight: .bold, design: .rounded))
+                        .font(.system(size: 19, weight: .semibold))
+                        .fontWidth(.expanded)
                         .foregroundStyle(Color.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
@@ -212,10 +198,6 @@ struct StatsView: View {
                 Text("Здесь появятся категории, как только будут траты.")
                     .font(.subheadline)
                     .foregroundStyle(Color.muted)
-            } else {
-                Text(detailed ? "Каждая подкатегория отдельно. Нажми, чтобы увидеть покупки." : "Нажми на группу, чтобы увидеть подкатегории и покупки.")
-                    .font(.caption)
-                    .foregroundStyle(Color.faint)
             }
 
             VStack(spacing: 4) {
@@ -233,29 +215,8 @@ struct StatsView: View {
                         .buttonStyle(.plain)
 
                         if selected == c.id {
-                            let inside = current.filter { $0.category == c.group && (!detailed || $0.sub == c.sub) }
-                            VStack(alignment: .leading, spacing: 0) {
-                                if !detailed {
-                                    let subs = Stats.slices(inside, detailed: true)
-                                    if subs.count > 1 || subs.first.map({ !$0.sub.isEmpty }) == true {
-                                        ScrollView(.horizontal, showsIndicators: false) {
-                                            HStack(spacing: 6) {
-                                                ForEach(subs) { sl in
-                                                    Chip(title: "\(sl.sub.isEmpty ? "Без уточнения" : sl.sub) · \(Money.format(sl.amount, currency))",
-                                                         color: sl.color)
-                                                }
-                                            }
-                                        }
-                                        .padding(.vertical, 6)
-                                    }
-                                }
-                                ForEach(inside.sorted { $0.date > $1.date }) { item in
-                                    Button { open(item) } label: { ExpenseRow(item: item) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.leading, 8)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            groupDetail(current.filter { $0.category == c.group })
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
                 }
@@ -264,60 +225,60 @@ struct StatsView: View {
         .card()
     }
 
-    // MARK: people
+    /// Subcategories as quiet lines, then the purchases
+    private func groupDetail(_ inside: [SpendItem]) -> some View {
+        let subs = Stats.slices(inside, detailed: true)
+        let showSubs = subs.count > 1 || subs.first.map { !$0.sub.isEmpty } == true
+        return VStack(alignment: .leading, spacing: 0) {
+            if showSubs {
+                VStack(spacing: 8) {
+                    ForEach(subs) { s in
+                        HStack {
+                            Circle().fill(s.color).frame(width: 7, height: 7)
+                            Text(s.sub.isEmpty ? "Без уточнения" : s.sub)
+                                .font(.subheadline)
+                                .foregroundStyle(Color.ink)
+                            Spacer()
+                            Text(Money.format(s.amount, currency))
+                                .font(.subheadline.weight(.medium))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.muted)
+                        }
+                    }
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 8)
+                Rectangle().fill(Color.line).frame(height: 1).padding(.horizontal, 8)
+            }
+            ForEach(inside.sorted { $0.date > $1.date }) { item in
+                Button { open(item) } label: { ExpenseRow(item: item) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 8)
+    }
+
+    // MARK: together
 
     @ViewBuilder
     private func peopleCard(current: [SpendItem], previous: [SpendItem], total: Double) -> some View {
         let people = Stats.people(current)
-        let prev = Dictionary(uniqueKeysWithValues: Stats.people(previous).map { ($0.name, $0.amount) })
-        let known = TagStore.shared.people
-        if !people.isEmpty || !known.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "heart.fill").foregroundStyle(Color.bubble)
-                    Text("Вместе").font(.system(size: 17, weight: .bold, design: .rounded)).foregroundStyle(Color.ink)
-                    Spacer()
-                }
-                if people.isEmpty {
-                    let with = known.first.map { "с " + Tags.instrumental($0.name) } ?? "с Ариной"
-                    Text("В этом периоде нет трат с отметкой. Скажи, например: «кафе " + with + " 3200», и здесь будет видно, сколько уходит на вас.")
-                        .font(.subheadline)
-                        .foregroundStyle(Color.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        if !people.isEmpty {
+            let prev = Dictionary(uniqueKeysWithValues: Stats.people(previous).map { ($0.name, $0.amount) })
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle(text: "Вместе")
                 ForEach(people) { p in
-                    let items = current.filter { $0.people.contains(p.name) }
                     let isOpen = openPerson == p.name
-                    VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Button {
                             withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { openPerson = isOpen ? nil : p.name }
                         } label: {
-                            PersonRow(person: p, total: total, previous: prev[p.name], currency: currency, shown: shown)
+                            PersonRow(person: p, total: total, previous: prev[p.name], currency: currency)
                         }
                         .buttonStyle(.plain)
-
                         if isOpen {
-                            let groups = Stats.slices(items, detailed: detailed)
-                            VStack(spacing: 6) {
-                                ForEach(groups) { g in
-                                    HStack(spacing: 10) {
-                                        ItemIcon(symbol: g.group.symbol, color: g.color, size: 28)
-                                        Text(g.name).font(.subheadline.weight(.medium)).foregroundStyle(Color.ink).lineLimit(1)
-                                        Spacer()
-                                        Text(Money.format(g.amount, currency)).font(.subheadline.weight(.semibold)).monospacedDigit()
-                                            .foregroundStyle(Color.ink)
-                                    }
-                                }
-                            }
-                            .padding(.leading, 8)
-                            VStack(spacing: 0) {
-                                ForEach(items.sorted { $0.date > $1.date }.prefix(15)) { item in
-                                    Button { open(item) } label: { ExpenseRow(item: item) }
-                                        .buttonStyle(.plain)
-                                }
-                            }
-                            .padding(.leading, 8)
-                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            groupDetail(current.filter { $0.people.contains(p.name) })
+                                .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
                 }
@@ -343,7 +304,7 @@ struct StatsView: View {
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("По дням").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
+                SectionTitle(text: "По дням")
                 Spacer()
                 Text(tip).font(.caption).foregroundStyle(Color.muted).lineLimit(1).minimumScaleFactor(0.8)
             }
@@ -353,7 +314,7 @@ struct StatsView: View {
                             y: .value("Сумма", shown ? d.total : 0),
                             width: .ratio(0.62))
                         .cornerRadius(4)
-                        .foregroundStyle(d.isToday ? Color.bubble : Color.violet.opacity(isSelected(d) ? 0.75 : 0.35))
+                        .foregroundStyle(d.isToday ? Color.warm : Color.ink.opacity(isSelected(d) ? 0.5 : 0.18))
                 }
                 if avg > 0 {
                     RuleMark(y: .value("Среднее", avg))
@@ -391,7 +352,7 @@ struct StatsView: View {
         let hasClaude = ClaudeService.stored != nil
 
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Где сэкономить и что в норме").font(.subheadline.weight(.semibold)).foregroundStyle(Color.muted)
+            SectionTitle(text: "Где сэкономить и что в норме")
 
             ForEach(list) { ins in
                 HStack(alignment: .top, spacing: 12) {
@@ -407,26 +368,20 @@ struct StatsView: View {
                 }
             }
 
-            if !current.isEmpty {
-                if hasClaude {
-                    Button { Task { await askClaude(current: current, previous: previous) } } label: {
-                        HStack(spacing: 8) {
-                            if adviceBusy { ProgressView().tint(Color.surface) } else { Image(systemName: "sparkles") }
-                            Text(adviceBusy ? "Claude смотрит на цифры…" : "Разбор от Claude")
-                        }
-                        .font(.headline)
-                        .foregroundStyle(Color.surface)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 50)
-                        .background(Color.ink, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if !current.isEmpty && hasClaude {
+                Button { Task { await askClaude(current: current, previous: previous) } } label: {
+                    HStack(spacing: 8) {
+                        if adviceBusy { ProgressView().tint(Color.surface) } else { Image(systemName: "sparkles") }
+                        Text(adviceBusy ? "Claude смотрит на цифры…" : "Разбор от Claude")
                     }
-                    .buttonStyle(PressScale())
-                    .disabled(adviceBusy)
-                } else {
-                    Text("Добавь ключ Claude в настройках, и он даст личный разбор: где резать, а где можно не жалеть.")
-                        .font(.caption)
-                        .foregroundStyle(Color.faint)
+                    .font(.headline)
+                    .foregroundStyle(Color.surface)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 50)
+                    .background(Color.ink, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
+                .buttonStyle(PressScale())
+                .disabled(adviceBusy)
             }
 
             if let advice {
@@ -475,7 +430,7 @@ struct StatsView: View {
             app.showToast("Это пример. Запиши свою трату, и пример исчезнет.")
             return
         }
-        editing = expenses.first { $0.uid.uuidString == item.id }
+        editing = records.first { $0.uid.uuidString == item.id }
     }
 }
 
@@ -505,24 +460,23 @@ struct SliceRow: View {
             HStack(spacing: 12) {
                 ItemIcon(symbol: slice.group.symbol, color: slice.color)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(slice.name).font(.body.weight(.semibold)).foregroundStyle(Color.ink).lineLimit(1)
-                    Text((slice.sub.isEmpty ? "" : slice.group.name + " · ") + "\(purchases(slice.count)) · \(share)%")
-                        .font(.caption).foregroundStyle(Color.muted).lineLimit(1)
+                    Text(slice.name).font(.body.weight(.medium)).foregroundStyle(Color.ink).lineLimit(1)
+                    Text("\(purchases(slice.count)) · \(share)%").font(.caption).foregroundStyle(Color.muted)
                 }
                 Spacer(minLength: 6)
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Money.format(slice.amount, currency)).font(.body.weight(.bold)).monospacedDigit().foregroundStyle(Color.ink)
+                    Text(Money.format(slice.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
                     if !delta.0.isEmpty { Text(delta.0).font(.caption).monospacedDigit().foregroundStyle(delta.1) }
                 }
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.surface2)
-                    Capsule().fill(slice.color.gradient)
+                    Capsule().fill(slice.color)
                         .frame(width: geo.size.width * (shown ? slice.amount / max(maxAmount, 0.01) : 0))
                 }
             }
-            .frame(height: 6)
+            .frame(height: 5)
             .padding(.leading, 54)
         }
         .padding(8)
@@ -536,44 +490,25 @@ struct PersonRow: View {
     let total: Double
     let previous: Double?
     let currency: String
-    let shown: Bool
 
     var body: some View {
-        let share = total > 0 ? person.amount / total : 0
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Image(systemName: "heart.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 42, height: 42)
-                    .background(LinearGradient(colors: [Color.bubble, Color.violet], startPoint: .topLeading, endPoint: .bottomTrailing),
-                                in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .shadow(color: Color.bubble.opacity(0.35), radius: 6, y: 3)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(person.withName).font(.body.weight(.semibold)).foregroundStyle(Color.ink)
-                    Text("\(purchases(person.count)) · \(Int((share * 100).rounded()))% всех трат")
-                        .font(.caption).foregroundStyle(Color.muted)
-                }
-                Spacer(minLength: 6)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Money.format(person.amount, currency)).font(.body.weight(.bold)).monospacedDigit().foregroundStyle(Color.ink)
-                    if let p = previous, p > 0, abs(person.amount - p) > person.amount * 0.05 {
-                        let diff = person.amount - p
-                        Text((diff > 0 ? "+" : "−") + Money.format(abs(diff), currency))
-                            .font(.caption).monospacedDigit()
-                            .foregroundStyle(diff > 0 ? Color.bad : Color.good)
-                    }
+        let share = total > 0 ? Int((person.amount / total * 100).rounded()) : 0
+        HStack(spacing: 12) {
+            ItemIcon(symbol: "heart.fill", color: Color(hue: 0.95, saturation: 0.45, brightness: 0.88))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(person.withName).font(.body.weight(.medium)).foregroundStyle(Color.ink)
+                Text("\(purchases(person.count)) · \(share)% всех трат").font(.caption).foregroundStyle(Color.muted)
+            }
+            Spacer(minLength: 6)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(Money.format(person.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
+                if let p = previous, p > 0, abs(person.amount - p) > person.amount * 0.05 {
+                    let diff = person.amount - p
+                    Text((diff > 0 ? "+" : "−") + Money.format(abs(diff), currency))
+                        .font(.caption).monospacedDigit()
+                        .foregroundStyle(diff > 0 ? Color.bad : Color.good)
                 }
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.surface2)
-                    Capsule().fill(LinearGradient(colors: [Color.bubble, Color.violet], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: geo.size.width * (shown ? share : 0))
-                }
-            }
-            .frame(height: 6)
-            .padding(.leading, 54)
         }
         .padding(8)
         .contentShape(Rectangle())

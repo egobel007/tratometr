@@ -202,7 +202,7 @@ enum Keychain {
     }
 }
 
-// MARK: - Theme: bright, sunny, friendly
+// MARK: - Theme: quiet, light, premium
 
 extension UIColor {
     convenience init(hex: UInt32, alpha: CGFloat = 1) {
@@ -217,36 +217,23 @@ extension Color {
     static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
         Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(hex: dark) : UIColor(hex: light) })
     }
-    static let appBG = adaptive(0xFBF9FF, 0x14112B)
-    static let surface = adaptive(0xFFFFFF, 0x201C3D)
-    static let surface2 = adaptive(0xF1EEFB, 0x2C2752)
-    static let ink = adaptive(0x1F1A3A, 0xF6F4FF)
-    static let muted = adaptive(0x6F6A8E, 0xABA6CF)
-    static let faint = adaptive(0xA9A4C6, 0x716C99)
-    static let line = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.09) : UIColor(hex: 0x1F1A3A, alpha: 0.07) })
-    static let warm = adaptive(0xFF6B5A, 0xFF8A7B)
-    static let good = adaptive(0x16B07A, 0x3EDC9E)
-    static let warn = adaptive(0xF29A12, 0xFFC04D)
-    static let bad = adaptive(0xF4475B, 0xFF6F7F)
+    static let appBG = adaptive(0xECEEF2, 0x0E1015)
+    static let surface = adaptive(0xFFFFFF, 0x171A21)
+    static let surface2 = adaptive(0xE3E6EC, 0x21252E)
+    static let ink = adaptive(0x121419, 0xF1F2F5)
+    static let muted = adaptive(0x666C7A, 0x99A0AE)
+    static let faint = adaptive(0x9399A6, 0x6B7180)
+    static let line = Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.08) : UIColor(hex: 0x121419, alpha: 0.08) })
+    static let warm = adaptive(0xF07A4A, 0xFF9466)
+    static let good = adaptive(0x2B9A68, 0x43C08A)
+    static let warn = adaptive(0xC98A00, 0xE5B23A)
+    static let bad = adaptive(0xD4473A, 0xF06A5D)
 
-    // party palette
-    static let sun = Color(red: 1.0, green: 0.74, blue: 0.27)
-    static let bubble = Color(red: 1.0, green: 0.44, blue: 0.66)
-    static let violet = Color(red: 0.55, green: 0.42, blue: 1.0)
-    static let mintPop = Color(red: 0.20, green: 0.86, blue: 0.70)
-    static let sky = Color(red: 0.30, green: 0.66, blue: 1.0)
-    static let coral = Color(red: 1.0, green: 0.42, blue: 0.35)
+    static let orbPeach = Color(red: 1.0, green: 0.76, blue: 0.66)
+    static let orbLilac = Color(red: 0.72, green: 0.68, blue: 1.0)
+    static let orbAqua = Color(red: 0.56, green: 0.90, blue: 0.85)
 }
 
 enum Palette {
-    static let party: [Color] = [.sun, .bubble, .violet, .mintPop, .sky, .coral]
-    static let orb = AngularGradient(colors: [.sun, .bubble, .violet, .sky, .mintPop, .sun], center: .center)
-    static let hero = LinearGradient(colors: [Color(red: 1.0, green: 0.62, blue: 0.30), .bubble, .violet],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let plus = LinearGradient(colors: [Color(red: 0.16, green: 0.80, blue: 0.62), Color(red: 0.25, green: 0.68, blue: 1.0)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let minus = LinearGradient(colors: [Color(red: 1.0, green: 0.55, blue: 0.35), Color(red: 0.98, green: 0.33, blue: 0.52)],
-                                      startPoint: .topLeading, endPoint: .bottomTrailing)
-    static let accent = LinearGradient(colors: [Color(red: 1.0, green: 0.55, blue: 0.30), .bubble],
-                                       startPoint: .leading, endPoint: .trailing)
+    static let orb = AngularGradient(colors: [.orbPeach, .orbLilac, .orbAqua, .orbPeach], center: .center)
 }

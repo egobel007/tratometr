@@ -64,8 +64,10 @@ final class SpeechRecognizer: ObservableObject {
         req.shouldReportPartialResults = true
         req.addsPunctuation = true
         req.taskHint = .dictation
-        req.contextualStrings = ["рублей", "евро", "долларов", "такси", "кофе", "капучино", "Пятёрочка",
-                                 "Перекрёсток", "ВкусВилл", "Wildberries", "Ozon", "полторы тысячи", "вчера", "позавчера"]
+        req.contextualStrings = ["рублей", "евро", "долларов", "такси", "кофе", "капучино", "ресторан", "в ресторане",
+                                 "столовая", "фастфуд", "продукты", "Пятёрочка", "Перекрёсток", "ВкусВилл", "Wildberries",
+                                 "Ozon", "аптека", "бензин", "полторы тысячи", "вчера", "позавчера", "пришло", "зарплата",
+                                 "часть зарплаты", "аванс", "перепродал", "кэшбэк"] + TagStore.shared.people.map(\.name)
         request = req
 
         let input = engine.inputNode
@@ -94,7 +96,7 @@ final class SpeechRecognizer: ObservableObject {
                 guard let self, self.isRunning else { return }
                 if let result {
                     self.transcript = result.bestTranscription.formattedString
-                    if result.isFinal { self.finish() } else { self.armSilence(1.7) }
+                    if result.isFinal { self.finish() } else { self.armSilence(2.0) }
                 } else if error != nil {
                     self.finish()
                 }

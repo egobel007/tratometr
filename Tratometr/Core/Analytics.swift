@@ -48,7 +48,7 @@ struct Insight: Identifiable {
         case .good: return .good
         case .warn: return .warn
         case .bad: return .bad
-        case .neutral: return .violet
+        case .neutral: return .muted
         }
     }
 }
