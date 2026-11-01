@@ -78,7 +78,7 @@ struct HistoryView: View {
             Text(RuDate.dayLabel(g.day)).font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink)
             Spacer()
             if came > 0 { Text("+" + Money.format(came, currency)).foregroundStyle(Color.good) }
-            if spent > 0 { Text(Money.format(spent, currency)).foregroundStyle(Color.muted) }
+            if spent > 0 { Text("−" + Money.format(spent, currency)).foregroundStyle(Color.muted) }
         }
         .font(.subheadline)
         .monospacedDigit()

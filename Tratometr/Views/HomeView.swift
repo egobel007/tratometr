@@ -138,11 +138,11 @@ struct HeroCard: View {
 
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("Потрачено сегодня").eyebrow()
+                Text("Расходы за сегодня").eyebrow()
                 Spacer()
                 if count > 0 { Text(purchases(count)).eyebrow() }
             }
-            Text(Money.format(today, currency))
+            Text(Money.signed(-today, currency))
                 .font(.system(size: 44, weight: .semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(Color.ink)
@@ -156,12 +156,12 @@ struct HeroCard: View {
             Rectangle().fill(Color.line).frame(height: 1)
 
             HStack(alignment: .top, spacing: 10) {
-                stat("Неделя", Money.format(week, currency), .ink)
-                stat("Месяц", Money.format(month, currency), .ink)
+                stat("За неделю", Money.signed(-week, currency), .ink)
+                stat("За месяц", Money.signed(-month, currency), .ink)
                 if monthIncome > 0 {
-                    stat("Остаток", Money.signed(net, currency), net >= 0 ? .good : .bad)
+                    stat("Остаток месяца", Money.signed(net, currency), net >= 0 ? .good : .bad)
                 } else {
-                    stat("В среднем/день", Money.format(average, currency), .ink)
+                    stat("В среднем в день", Money.signed(-average, currency), .ink)
                 }
             }
             .padding(.top, 14)

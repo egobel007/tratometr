@@ -146,7 +146,9 @@ enum Tags {
     /// Word start differs from the keyword by at most one letter: «ристоран» ≈ «ресторан»
     static func close(_ token: String, _ k: String) -> Bool {
         let t = Array(token), b = Array(k)
-        for len in max(1, b.count - 1)...min(t.count, b.count + 1) {
+        let lo = max(1, b.count - 1), hi = min(t.count, b.count + 1)
+        guard !b.isEmpty, lo <= hi else { return false }
+        for len in lo...hi {
             if distance(Array(t.prefix(len)), b) <= 1 { return true }
         }
         return false

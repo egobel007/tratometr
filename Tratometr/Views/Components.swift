@@ -52,7 +52,7 @@ struct ExpenseRow: View {
                 .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text((item.isIncome ? "+" : "") + Money.format(item.amount, item.currency))
+            Text((item.isIncome ? "+" : "−") + Money.format(item.amount, item.currency))
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(item.isIncome ? Color.good : Color.ink)
