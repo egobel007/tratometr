@@ -23,7 +23,8 @@ struct HistoryView: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         let byKind = items.filter { filter == 0 || (filter == 1 && !$0.isIncome) || (filter == 2 && $0.isIncome) }
         let filtered = q.isEmpty ? byKind : byKind.filter {
-            $0.note.lowercased().contains(q) || $0.kindName.lowercased().contains(q) || Money.plain($0.amount).contains(q)
+            $0.note.lowercased().contains(q) || $0.kindName.lowercased().contains(q) || $0.sub.lowercased().contains(q)
+                || $0.people.contains { Tags.norm($0).hasPrefix(Tags.nameStem(q)) } || Money.plain($0.amount).contains(q)
         }
         let groups = Dictionary(grouping: filtered.prefix(600)) { RuDate.cal.startOfDay(for: $0.date) }
             .map { DayGroup(day: $0.key, items: $0.value.sorted { $0.date > $1.date }) }
@@ -76,7 +77,7 @@ struct HistoryView: View {
             .background { AppBackground() }
             .navigationTitle("История")
             .toolbarBackground(.hidden, for: .navigationBar)
-            .searchable(text: $query, prompt: "Кофе, зарплата, 1500")
+            .searchable(text: $query, prompt: "Кофе, Арина, столовая, 1500")
         }
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
     }
@@ -116,12 +117,14 @@ struct HistoryView: View {
     private func delete(_ item: SpendItem) {
         guard let e = records.first(where: { $0.uid.uuidString == item.id }) else { return }
         let copy = (e.amount, e.currency, e.categoryID, e.note, e.date, e.source, e.rawText, e.kind)
+        let extra = (e.subcategory, e.people)
         context.delete(e)
         try? context.save()
         let ctx = context
         app.showToast("Удалил", undo: {
             ctx.insert(Expense(amount: copy.0, currency: copy.1, categoryID: copy.2, note: copy.3,
-                               date: copy.4, source: copy.5, rawText: copy.6, kind: copy.7))
+                               date: copy.4, source: copy.5, rawText: copy.6, kind: copy.7,
+                               subcategory: extra.0, people: extra.1))
             try? ctx.save()
         })
     }
@@ -137,7 +140,11 @@ struct EditExpenseView: View {
     @State private var isIncome = false
     @State private var category: SpendCategory = .other
     @State private var income: IncomeSource = .other
+    @State private var sub = ""
+    @State private var people: [String] = []
+    @State private var newPerson = ""
     @State private var confirmDelete = false
+    @ObservedObject private var tags = TagStore.shared
 
     var body: some View {
         NavigationStack {
@@ -183,6 +190,45 @@ struct EditExpenseView: View {
                     .padding(.vertical, 4)
                 }
                 Section {
+                    TextField("Например, Столовая", text: $sub)
+                    let options = tags.subs(isIncome: isIncome, group: isIncome ? income.rawValue : category.rawValue)
+                    if !options.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                ForEach(options, id: \.self) { name in
+                                    Button { sub = sub == name ? "" : name } label: {
+                                        Chip(title: name, color: isIncome ? income.color : category.color, filled: sub == name)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Подкатегория")
+                } footer: {
+                    Text("Можно написать любую новую. Я запомню и дальше буду раскладывать такие записи сам.")
+                }
+                Section("С кем") {
+                    ForEach(Tags.uniq(tags.people.map(\.name) + people), id: \.self) { name in
+                        Toggle(isOn: Binding(
+                            get: { people.contains(name) },
+                            set: { on in if on { if !people.contains(name) { people.append(name) } } else { people.removeAll { $0 == name } } }
+                        )) {
+                            Label(name, systemImage: "heart.fill").foregroundStyle(Color.ink)
+                        }
+                        .tint(Color.bubble)
+                    }
+                    HStack {
+                        TextField("Добавить человека", text: $newPerson)
+                        Button("Добавить") {
+                            if let name = tags.addPerson(newPerson), !people.contains(name) { people.append(name) }
+                            newPerson = ""
+                        }
+                        .disabled(newPerson.trimmingCharacters(in: .whitespaces).count < 2)
+                    }
+                }
+                Section {
                     Button(isIncome ? "Удалить поступление" : "Удалить трату", role: .destructive) { confirmDelete = true }
                 }
             }
@@ -209,6 +255,8 @@ struct EditExpenseView: View {
             isIncome = expense.isIncome
             category = expense.category
             income = expense.incomeSource
+            sub = expense.subcategory
+            people = expense.peopleList
         }
     }
 
@@ -241,6 +289,13 @@ struct EditExpenseView: View {
 
     private func save() {
         let trimmed = note.trimmingCharacters(in: .whitespaces)
+        let cleanSub = Tags.capitalized(sub.trimmingCharacters(in: .whitespaces))
+        let group = isIncome ? income.rawValue : category.rawValue
+        let changed = expense.isIncome != isIncome || expense.categoryID != group || expense.subcategory != cleanSub
+        expense.subcategory = cleanSub
+        expense.people = people.joined(separator: ",")
+        tags.registerSub(isIncome: isIncome, group: group, sub: cleanSub)
+        if changed { tags.learn(note: trimmed.isEmpty ? expense.note : trimmed, isIncome: isIncome, group: group, sub: cleanSub) }
         expense.amount = Money.parse(amountText)
         expense.kind = isIncome ? "income" : "expense"
         expense.categoryID = isIncome ? income.rawValue : category.rawValue

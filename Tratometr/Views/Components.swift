@@ -51,7 +51,11 @@ struct ExpenseRow: View {
                     if item.source == "photo" { Image(systemName: "camera.fill") }
                     Text(showDate ? RuDate.dayLabel(item.date) : RuDate.time(item.date))
                     Text("·")
-                    Text(item.kindName)
+                    Text(item.detailName)
+                    if !item.people.isEmpty {
+                        Image(systemName: "heart.fill").foregroundStyle(Color.bubble)
+                        Text(item.people.joined(separator: ", ")).foregroundStyle(Color.bubble)
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(Color.muted)
@@ -153,6 +157,29 @@ struct ScreenTitle: View {
         }
         .padding(.top, 8)
         .padding(.bottom, 12)
+    }
+}
+
+// MARK: - Chips
+
+/// Small rounded tag used for subcategories and people.
+struct Chip: View {
+    let title: String
+    var symbol: String? = nil
+    var color: Color = .violet
+    var filled = true
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol) }
+            Text(title).lineLimit(1)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(filled ? color : Color.muted)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(filled ? color.opacity(0.14) : Color.clear, in: Capsule())
+        .overlay(Capsule().strokeBorder(filled ? Color.clear : Color.faint.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 3])))
     }
 }
 

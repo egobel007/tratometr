@@ -21,6 +21,7 @@ struct HomeView: View {
         let week = Stats.total(Stats.filter(main, Stats.interval(.week, offset: 0)))
         let month = Stats.total(Stats.filter(main, monthIv))
         let monthIn = Stats.total(Stats.filter(mainIn, monthIv))
+        let together = Stats.people(Stats.filter(main, monthIv))
         let dayOfMonth = Double(RuDate.cal.component(.day, from: Date()))
         let recent = (spends + incomes).sorted { $0.date > $1.date }.prefix(6)
 
@@ -38,6 +39,13 @@ struct HomeView: View {
                     .padding(.top, 12)
                     .onTapGesture { app.go(.balance) }
                     .riseIn(0.06)
+
+                ForEach(together.prefix(2)) { p in
+                    TogetherStrip(person: p, monthTotal: month, currency: currency)
+                        .padding(.top, 10)
+                        .onTapGesture { app.go(.stats) }
+                        .riseIn(0.08)
+                }
 
                 orbBlock.riseIn(0.1)
 
@@ -304,5 +312,45 @@ struct MonthStrip: View {
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityHint("Открыть баланс")
+    }
+}
+
+/// "♥ С Ариной в ноябре: 12 400 ₽ · 18% трат"
+struct TogetherStrip: View {
+    let person: PersonTotal
+    let monthTotal: Double
+    let currency: String
+
+    var body: some View {
+        let share = monthTotal > 0 ? Int((person.amount / monthTotal * 100).rounded()) : 0
+        HStack(spacing: 12) {
+            Image(systemName: "heart.fill")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 42, height: 42)
+                .background(LinearGradient(colors: [Color.bubble, Color.violet], startPoint: .topLeading, endPoint: .bottomTrailing),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .shadow(color: Color.bubble.opacity(0.35), radius: 6, y: 3)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(person.withName) в \(RuDate.monthsPrep[RuDate.parts(Date()).month])").eyebrow()
+                Text(Money.format(person.amount, currency))
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.ink)
+            }
+            Spacer(minLength: 4)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("\(share)%")
+                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.bubble)
+                Text("всех трат").font(.caption.weight(.semibold)).foregroundStyle(Color.muted)
+            }
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.bold))
+                .foregroundStyle(Color.faint)
+        }
+        .card()
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Открыть аналитику")
     }
 }

@@ -57,6 +57,7 @@ func purchases(_ n: Int) -> String { "\(n) \(plural(n, "покупка", "пок
 enum RuDate {
     static let months = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
     static let monthsGen = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"]
+    static let monthsPrep = ["январе", "феврале", "марте", "апреле", "мае", "июне", "июле", "августе", "сентябре", "октябре", "ноябре", "декабре"]
     static let monthsShort = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
     static let monthsShortNom = ["янв", "фев", "мар", "апр", "май", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"]
     /// index = Calendar weekday - 1 (Sunday first)
@@ -127,8 +128,8 @@ enum RuDate {
 // MARK: - Regex helpers (ICU, works with Cyrillic)
 
 extension String {
-    func splitRegex(_ pattern: String) -> [String] {
-        guard let re = try? NSRegularExpression(pattern: pattern) else { return [self] }
+    func splitRegex(_ pattern: String, caseInsensitive: Bool = false) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: caseInsensitive ? [.caseInsensitive] : []) else { return [self] }
         let ns = self as NSString
         var out: [String] = []
         var last = 0

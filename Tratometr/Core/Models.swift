@@ -17,9 +17,14 @@ final class Expense {
     var source: String = "voice"   // voice | photo | text
     var rawText: String = ""
     var kind: String = "expense"   // expense | income
+    /// Precise subcategory, e.g. "Столовая", "Перепродажа"
+    var subcategory: String = ""
+    /// Who it was with, comma separated: "Арина,Маша"
+    var people: String = ""
 
     init(amount: Double, currency: String, categoryID: String, note: String, date: Date,
-         source: String, rawText: String = "", kind: String = "expense") {
+         source: String, rawText: String = "", kind: String = "expense",
+         subcategory: String = "", people: String = "") {
         self.uid = UUID()
         self.amount = amount
         self.currency = currency
@@ -29,6 +34,12 @@ final class Expense {
         self.source = source
         self.rawText = rawText
         self.kind = kind
+        self.subcategory = subcategory
+        self.people = people
+    }
+
+    var peopleList: [String] {
+        people.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
 
     var isIncome: Bool { kind == "income" }
@@ -48,17 +59,22 @@ struct SpendItem: Identifiable, Hashable {
     let source: String
     var isIncome: Bool = false
     var income: IncomeSource = .other
+    var sub: String = ""
+    var people: [String] = []
 
     var symbol: String { isIncome ? income.symbol : category.symbol }
     var color: Color { isIncome ? income.color : category.color }
     var kindName: String { isIncome ? income.name : category.name }
+    /// Subcategory if there is one, otherwise the group
+    var detailName: String { sub.isEmpty ? kindName : sub }
 }
 
 extension SpendItem {
     init(_ e: Expense) {
         self.init(id: e.uid.uuidString, amount: e.amount, currency: e.currency,
                   category: e.isIncome ? .other : e.category, note: e.note, date: e.date,
-                  source: e.source, isIncome: e.isIncome, income: e.incomeSource)
+                  source: e.source, isIncome: e.isIncome, income: e.incomeSource,
+                  sub: e.subcategory, people: e.peopleList)
     }
 }
 
@@ -75,11 +91,16 @@ struct DraftExpense: Identifiable, Equatable {
     var raw: String
     var isIncome: Bool = false
     var income: IncomeSource = .other
+    var sub: String = ""
+    var people: [String] = []
+    /// The user changed the type, group or subcategory by hand: learn from it
+    var edited = false
 
     var symbol: String { isIncome ? income.symbol : category.symbol }
     var color: Color { isIncome ? income.color : category.color }
     var kindName: String { isIncome ? income.name : category.name }
     var categoryID: String { isIncome ? income.rawValue : category.rawValue }
+    var groupID: String { categoryID }
 }
 
 // MARK: - Expense categories
@@ -156,6 +177,15 @@ enum SpendCategory: String, CaseIterable, Identifiable, Codable {
     var color: Color { Color(hue: hsb.0, saturation: hsb.1, brightness: hsb.2) }
     var rgb: SIMD3<Float> { rgbFrom(hsb) }
 
+    /// Related shades for subcategories of the same group
+    func color(variant v: Int) -> Color {
+        guard v > 0 else { return color }
+        let h = (hsb.0 + Double(v) * 0.045).truncatingRemainder(dividingBy: 1)
+        let s = max(0.3, hsb.1 - 0.12 * Double(v % 3))
+        let b = min(1, max(0.5, hsb.2 + (v % 2 == 0 ? -0.1 : 0.04)))
+        return Color(hue: h, saturation: s, brightness: b)
+    }
+
     var hint: String {
         switch self {
         case .food: return "супермаркет, магазин, продукты"
@@ -181,7 +211,7 @@ enum SpendCategory: String, CaseIterable, Identifiable, Codable {
     var keywords: [String] {
         switch self {
         case .food: return ["продукт", "магазин", "супермаркет", "пятерочк", "перекрест", "магнит", "ашан", "лента", "вкусвилл", "дикси", "спар", "молок", "хлеб", "овощ", "фрукт", "мясо", "куриц", "яйц", "сыр", "albert", "jumbo", "lidl", "aldi", "рынок"]
-        case .cafe: return ["кафе", "ресторан", "обед", "ужин", "завтрак", "бар", "пицц", "суши", "ролл", "бургер", "доставк", "шаурм", "макдон", "kfc", "вкусно и точка", "столов", "пиво", "вино", "коктейл"]
+        case .cafe: return ["кафе", "ресторан", "обед", "ужин", "завтрак", "бар", "пицц", "суши", "ролл", "бургер", "доставк", "шаурм", "шаверм", "фастфуд", "хот-дог", "хотдог", "донер", "макдон", "kfc", "кфс", "вкусно и точка", "столов", "пиво", "вино", "коктейл"]
         case .coffee: return ["кофе", "капуч", "латте", "раф", "американо", "эспрессо", "флэт", "чай", "перекус", "булк", "круассан", "пирож", "снек", "шоколад", "вода", "сок", "энергетик", "морожен"]
         case .transport: return ["метро", "автобус", "трамва", "троллейб", "электричк", "поезд", "бензин", "заправк", "топливо", "парковк", "проезд", "транспорт", "каршеринг", "самокат", "мойк"]
         case .taxi: return ["такси", "убер", "uber", "bolt", "болт", "яндекс го"]

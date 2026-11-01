@@ -83,6 +83,34 @@ enum Stats {
             .sorted { $0.amount > $1.amount }
     }
 
+    /// Groups, or (detailed) every subcategory as its own slice
+    static func slices(_ items: [SpendItem], detailed: Bool) -> [Slice] {
+        let grouped = Dictionary(grouping: items) { detailed ? $0.category.rawValue + "|" + $0.sub : $0.category.rawValue }
+        let raw = grouped.map { key, xs -> (String, SpendCategory, String, Double, Int) in
+            (key, xs[0].category, detailed ? xs[0].sub : "", total(xs), xs.count)
+        }.sorted { $0.3 > $1.3 }
+        var variant: [SpendCategory: Int] = [:]
+        return raw.map { r in
+            let v = variant[r.1, default: 0]
+            variant[r.1] = v + 1
+            return Slice(id: r.0, name: r.2.isEmpty ? r.1.name : r.2, group: r.1, sub: r.2,
+                         color: r.1.color(variant: v), amount: r.3, count: r.4)
+        }
+    }
+
+    /// How much was spent together with each person
+    static func people(_ items: [SpendItem]) -> [PersonTotal] {
+        var sums: [String: (Double, Int)] = [:]
+        for x in items where !x.isIncome {
+            for p in x.people {
+                let cur = sums[p] ?? (0, 0)
+                sums[p] = (cur.0 + x.amount, cur.1 + 1)
+            }
+        }
+        return sums.map { PersonTotal(name: $0.key, amount: $0.value.0, count: $0.value.1) }
+            .sorted { $0.amount > $1.amount }
+    }
+
     static func daily(_ items: [SpendItem], _ iv: DateInterval) -> [DayTotal] {
         let cal = RuDate.cal
         let today = cal.startOfDay(for: Date())
@@ -138,6 +166,24 @@ enum Stats {
         if let top = m.max(by: { $0.value < $1.value }) {
             out.append(Insight(tone: .neutral, symbol: "chart.pie.fill",
                                text: "**\(top.key.name)** забирает \(pct(top.value))% всех трат: \(f(top.value))."))
+        }
+
+        if let top = people(current).first {
+            let before = people(previous).first { $0.name == top.name }?.amount ?? 0
+            var text = "**\(top.withName)**: \(f(top.amount)), это \(pct(top.amount))% всех трат."
+            if before > 0 {
+                let diff = top.amount - before
+                if abs(diff) > top.amount * 0.05 {
+                    text += diff > 0 ? " На \(f(diff)) больше, чем по \(period.prevPhrase)." : " На \(f(-diff)) меньше, чем по \(period.prevPhrase)."
+                }
+            }
+            out.append(Insight(tone: .neutral, symbol: "heart.fill", text: text))
+        }
+
+        let subs = slices(current, detailed: true).filter { !$0.sub.isEmpty }
+        if let topSub = subs.first, topSub.count >= 3, topSub.amount > total * 0.08 {
+            out.append(Insight(tone: .neutral, symbol: "magnifyingglass",
+                               text: "Точнее всего деньги уходят на **\(topSub.name)**: \(purchases(topSub.count)) на \(f(topSub.amount))."))
         }
 
         if ptotal > 0 {
@@ -227,6 +273,8 @@ enum Stats {
         Крупнейшие траты: \(big.isEmpty ? "нет" : big).
         Мелкие покупки до \(f(small)): \(smalls.count) шт. на \(f(total(smalls))).
         Бюджет на месяц: \(budget > 0 ? f(budget) : "не задан").
+        Подкатегории: \(slices(current, detailed: true).filter { !$0.sub.isEmpty }.prefix(10).map { "\($0.name) \(f($0.amount))" }.joined(separator: ", ")).
+        Вместе с людьми: \(people(current).map { "\($0.name) \(f($0.amount))" }.joined(separator: ", ")).
         """
     }
 }
@@ -255,9 +303,31 @@ struct MonthFlow: Identifiable {
 
 struct SourceTotal: Identifiable {
     let source: IncomeSource
+    let sub: String
     let amount: Double
     let count: Int
-    var id: String { source.rawValue }
+    var id: String { source.rawValue + "|" + sub }
+    var name: String { sub.isEmpty ? source.name : sub }
+    var detail: String? { sub.isEmpty ? nil : source.name }
+}
+
+/// One slice of spending: a whole group, or one subcategory inside it.
+struct Slice: Identifiable {
+    let id: String
+    let name: String
+    let group: SpendCategory
+    let sub: String
+    let color: Color
+    let amount: Double
+    let count: Int
+}
+
+struct PersonTotal: Identifiable {
+    let name: String
+    let amount: Double
+    let count: Int
+    var id: String { name }
+    var withName: String { "С " + Tags.instrumental(name) }
 }
 
 enum Flow {
@@ -311,8 +381,9 @@ enum Flow {
     }
 
     static func bySource(_ incomes: [SpendItem]) -> [SourceTotal] {
-        Dictionary(grouping: incomes, by: \.income)
-            .map { SourceTotal(source: $0.key, amount: Stats.total($0.value), count: $0.value.count) }
+        Dictionary(grouping: incomes) { $0.income.rawValue + "|" + $0.sub }
+            .map { SourceTotal(source: $0.value[0].income, sub: $0.value[0].sub,
+                               amount: Stats.total($0.value), count: $0.value.count) }
             .sorted { $0.amount > $1.amount }
     }
 }
@@ -335,13 +406,16 @@ enum DemoData {
     static func make(currency: String) -> [SpendItem] {
         let c = CurrencyInfo.get(currency)
         var rng = RNG(state: 11)
-        let templates: [(SpendCategory, String, Double, Double, Double)] = [
-            (.coffee, "Капучино", 180, 320, 0.8), (.coffee, "Круассан", 150, 240, 0.3),
-            (.food, "Пятёрочка", 600, 3400, 0.5), (.cafe, "Обед", 450, 1100, 0.45),
-            (.transport, "Метро", 62, 62, 0.65), (.taxi, "Такси", 350, 950, 0.28),
-            (.fun, "Кино", 450, 900, 0.06), (.health, "Аптека", 300, 1400, 0.07),
-            (.cafe, "Доставка ужина", 900, 1900, 0.12), (.clothes, "Кроссовки", 5200, 7400, 0.02),
-            (.shop, "Наушники", 2500, 4900, 0.015), (.beauty, "Стрижка", 1500, 1500, 0.03)
+        // group, note, min, max, chance per day, subcategory, chance it was with Arina
+        let templates: [(SpendCategory, String, Double, Double, Double, String, Double)] = [
+            (.coffee, "Капучино", 180, 320, 0.8, "Кофе", 0), (.coffee, "Круассан", 150, 240, 0.3, "Выпечка", 0),
+            (.food, "Пятёрочка", 600, 3400, 0.5, "Супермаркет", 0.4), (.cafe, "Обед", 350, 520, 0.45, "Столовая", 0),
+            (.cafe, "Бургер", 380, 690, 0.12, "Фастфуд", 0.2), (.cafe, "Ужин", 2600, 5200, 0.07, "Ресторан", 0.9),
+            (.transport, "Метро", 62, 62, 0.65, "Метро", 0), (.taxi, "Такси", 350, 950, 0.28, "", 0.3),
+            (.fun, "Кино", 450, 900, 0.06, "Кино", 0.8), (.health, "Аптека", 300, 1400, 0.07, "Аптека", 0),
+            (.cafe, "Доставка ужина", 900, 1900, 0.12, "Доставка еды", 0.6), (.clothes, "Кроссовки", 5200, 7400, 0.02, "Обувь", 0),
+            (.shop, "Наушники", 2500, 4900, 0.015, "Техника", 0), (.beauty, "Стрижка", 1500, 1500, 0.03, "Стрижка", 0),
+            (.gifts, "Цветы", 1800, 3500, 0.03, "Цветы", 1)
         ]
         func money(_ rub: Double) -> Double {
             let v = (rub * c.demo / c.step).rounded() * c.step
@@ -350,31 +424,34 @@ enum DemoData {
         let cal = RuDate.cal
         let now = Date()
         var out: [SpendItem] = []
-        func add(_ amount: Double, _ cat: SpendCategory, _ note: String, _ date: Date, _ source: String = "voice") {
+        func add(_ amount: Double, _ cat: SpendCategory, _ note: String, _ date: Date, _ source: String = "voice",
+                 sub: String = "", people: [String] = []) {
             out.append(SpendItem(id: "demo\(out.count)", amount: money(amount), currency: currency, category: cat,
-                                 note: note, date: date, source: source))
+                                 note: note, date: date, source: source, sub: sub, people: people))
         }
-        func income(_ amount: Double, _ src: IncomeSource, _ note: String, _ date: Date) {
+        func income(_ amount: Double, _ src: IncomeSource, _ note: String, _ date: Date, sub: String = "") {
             out.append(SpendItem(id: "demo\(out.count)", amount: money(amount), currency: currency, category: .other,
-                                 note: note, date: date, source: "voice", isIncome: true, income: src))
+                                 note: note, date: date, source: "voice", isIncome: true, income: src, sub: sub))
         }
         for d in 0..<75 {
             guard let day = cal.date(byAdding: .day, value: -d, to: cal.startOfDay(for: now)) else { continue }
             for t in templates {
                 guard rng.next() <= t.4 else { continue }
                 let date = day.addingTimeInterval((8 + rng.next() * 13) * 3600)
-                add(t.2 + (t.3 - t.2) * rng.next(), t.0, t.1, date)
+                let withArina = rng.next() < t.6
+                add(t.2 + (t.3 - t.2) * rng.next(), t.0, t.1, date, sub: t.5, people: withArina ? ["Арина"] : [])
             }
             let dom = cal.component(.day, from: day)
             let noon = day.addingTimeInterval(12 * 3600)
             switch dom {
-            case 1: add(35000, .home, "Аренда", noon, "text"); income(1200, .refund, "Кэшбэк", noon)
-            case 3: add(899, .subs, "Подписки", noon, "text")
+            case 1: add(35000, .home, "Аренда", noon, "text", sub: "Аренда"); income(1200, .refund, "Кэшбэк", noon, sub: "Кэшбэк")
+            case 3: add(899, .subs, "Подписки", noon, "text", sub: "Подписки")
             case 5: income(40000, .salary, "Часть зарплаты", noon)
-            case 10: add(5200, .home, "Коммуналка", noon, "text")
+            case 10: add(5200, .home, "Коммуналка", noon, "text", sub: "Коммуналка")
             case 15: income(60000, .salary, "Часть зарплаты", noon)
             case 25: income(50000, .salary, "Остаток зарплаты", noon)
-            case 12 where d > 25: income(8000, .sale, "Продал велосипед", noon)
+            case 12 where d > 25: income(8000, .sale, "Продал велосипед", noon, sub: "Перепродажа")
+            case 20: income(4500, .sale, "Продал кроссовки", noon, sub: "Перепродажа")
             default: break
             }
         }

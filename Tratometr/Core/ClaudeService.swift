@@ -67,7 +67,14 @@ struct ClaudeService {
         IncomeSource.allCases.map { "\($0.rawValue): \($0.name) (\($0.hint))" }.joined(separator: "\n")
     }
 
-    func parseExpenses(text: String, currency: String, forceIncome: Bool = false) async throws -> [DraftExpense] {
+    func parseExpenses(text: String, currency: String, forceIncome: Bool = false, ctx: TagContext = .empty) async throws -> [DraftExpense] {
+        let peopleLine = ctx.people.isEmpty ? "пока никого" : ctx.people.map { p in
+            p.aliases.isEmpty ? p.name : "\(p.name) (она же: \(p.aliases.joined(separator: ", ")))"
+        }.joined(separator: "; ")
+        let subsLine = ctx.subs.keys.sorted().compactMap { key -> String? in
+            guard let list = ctx.subs[key], !list.isEmpty else { return nil }
+            return "\(key.replacingOccurrences(of: "expense:", with: "").replacingOccurrences(of: "income:", with: "доход ")): \(list.joined(separator: ", "))"
+        }.joined(separator: "\n")
         let prompt = """
         Разбери голосовую заметку о деньгах: траты и поступления. Текст продиктован голосом на русском: возможны ошибки распознавания, слова-паразиты, числа словами.
         Сегодня \(RuDate.longToday()). Основная валюта: \(currency).\(forceIncome ? " Человек сейчас записывает поступления, поэтому всё считай поступлениями, если явно не сказано иное." : "")
@@ -87,9 +94,14 @@ struct ClaudeService {
         - type: "expense" для трат, "income" для поступлений денег (пришло, получил, зарплата, аванс, продал, перевели мне, вернули, кэшбэк).
         - category: один id. Для трат из категорий трат (магазин продуктов вроде Пятёрочки или Lidl это food), для поступлений из категорий поступлений («часть зарплаты» это salary).
         - note: 1-4 слова по-русски с заглавной буквы: что купил или где («Капучино», «Такси до офиса»), для поступлений что пришло («Часть зарплаты», «Продал велосипед»).
+        - sub: точная подкатегория 1-3 слова внутри category. Бери из списка ниже, если подходит. Если ничего не подходит, придумай новую короткую и понятную («Корм для кота», «Штрафы»). Пустая строка, если уточнять нечего.
+        - people: массив имён людей, с кем или для кого была трата, в именительном падеже. Известные люди: \(peopleLine). Новых людей тоже добавляй («с Машей» → "Маша", «с мамой» → "Мама"). Если никого нет, пустой массив. Трата «с Ариной» относится только к той покупке, рядом с которой это сказано, если не сказано, что всё было вместе.
         - Если сумм нет совсем, верни [].
 
-        Ответь только JSON-массивом, без пояснений. Пример: [{"type":"expense","amount":250,"currency":"\(currency)","category":"coffee","note":"Капучино","daysAgo":0},{"type":"income","amount":40000,"currency":"\(currency)","category":"salary","note":"Часть зарплаты","daysAgo":0}]
+        Известные подкатегории:
+        \(subsLine)
+
+        Ответь только JSON-массивом, без пояснений. Пример: [{"type":"expense","amount":650,"currency":"\(currency)","category":"cafe","sub":"Столовая","note":"Обед","people":[],"daysAgo":0},{"type":"expense","amount":3200,"currency":"\(currency)","category":"cafe","sub":"Ресторан","note":"Ужин","people":["Арина"],"daysAgo":1},{"type":"income","amount":12000,"currency":"\(currency)","category":"sale","sub":"Перепродажа","note":"Продал кроссовки","people":[],"daysAgo":0}]
 
         Текст: «\(text.prefix(2000))»
         """
@@ -144,40 +156,47 @@ struct ClaudeService {
             var days = (o["daysAgo"] as? NSNumber)?.intValue ?? 0
             if days < 0 || days > 400 { days = 0 }
             let note = ((o["note"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+            let sub = ((o["sub"] as? String) ?? "").trimmingCharacters(in: .whitespaces)
+            let people = (o["people"] as? [Any])?.compactMap { $0 as? String } ?? []
             return DraftExpense(amount: (amount * 100).rounded() / 100, currency: cur, category: isIncome ? .other : cat,
                                 note: note.isEmpty ? (isIncome ? src.name : cat.name) : String(note.prefix(60)),
                                 date: RuDate.date(daysAgo: days), source: source, raw: raw,
-                                isIncome: isIncome, income: src)
+                                isIncome: isIncome, income: src,
+                                sub: String(sub.prefix(40)), people: people)
         }
     }
 }
 
 /// Picks Claude when a key is set, otherwise the offline parser / OCR.
 enum ExpenseParser {
-    static func parse(text: String, currency: String, forceIncome: Bool = false) async -> (items: [DraftExpense], notice: String?) {
+    static func parse(text: String, currency: String, forceIncome: Bool = false, ctx: TagContext = .empty) async -> (items: [DraftExpense], notice: String?) {
         if let claude = ClaudeService.stored {
             do {
-                let items = try await claude.parseExpenses(text: text, currency: currency, forceIncome: forceIncome)
+                var items = try await claude.parseExpenses(text: text, currency: currency, forceIncome: forceIncome, ctx: ctx)
+                for i in items.indices { Tags.finishClaude(&items[i], ctx: ctx) }
                 if !items.isEmpty { return (items, nil) }
             } catch {
-                return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome), "Claude не ответил, разобрал сам")
+                return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome, ctx: ctx), "Claude не ответил, разобрал сам")
             }
         }
-        return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome), nil)
+        return (LocalParser.parse(text, currency: currency, forceIncome: forceIncome, ctx: ctx), nil)
     }
 
-    static func parseReceipt(_ image: UIImage, currency: String) async -> (items: [DraftExpense], notice: String?) {
+    static func parseReceipt(_ image: UIImage, currency: String, ctx: TagContext = .empty) async -> (items: [DraftExpense], notice: String?) {
         var notice: String? = nil
         if let claude = ClaudeService.stored {
             do {
-                let items = try await claude.parseReceipt(image, currency: currency)
+                var items = try await claude.parseReceipt(image, currency: currency)
+                for i in items.indices { Tags.finishClaude(&items[i], ctx: ctx) }
                 if !items.isEmpty { return (items, nil) }
             } catch {
                 notice = "Claude не ответил, прочитал чек сам"
             }
         }
         let lines = await ReceiptOCR.recognize(image)
-        return (ReceiptOCR.extract(lines: lines, currency: currency), notice)
+        var items = ReceiptOCR.extract(lines: lines, currency: currency)
+        for i in items.indices { Tags.applyRules(&items[i], text: items[i].note, ctx: ctx, allowKindSwitch: false) }
+        return (items, notice)
     }
 }
 

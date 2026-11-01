@@ -18,43 +18,57 @@ enum LocalParser {
         "оплатил", "оплатила", "взял", "взяла", "за", "на", "в", "во", "около", "примерно", "где-то", "еще",
         "вчера", "сегодня", "позавчера", "руб", "рубля", "рублей", "рубль", "р", "евро", "доллар", "доллара",
         "долларов", "бакса", "баксов", "тенге", "фунт", "фунтов", "по", "тысяч", "тысячи", "тысяча", "тыс",
-        "штук", "штуки", "с", "половиной", "ну", "вот", "короче", "типа", "это", "было", "была", "был", "и", "а", "плюс",
+        "штук", "штуки", "с", "со", "вместе", "половиной", "ну", "вот", "короче", "типа", "это", "было", "была", "был", "и", "а", "плюс",
         "пришло", "пришла", "пришли", "поступило", "поступила", "получил", "получила", "получили", "часть", "частью",
         "перевели", "скинули", "заработал", "заработала", "продал", "продала", "перепродал", "мне", "от", "из", "зп"
     ]
 
     static let incomeWords: Set<String> = ["пришло", "пришла", "пришли", "пришел", "поступило", "поступила", "поступили",
                                           "поступление", "получил", "получила", "получили", "зп"]
-    static let incomeTriggers = ["зарплат", "аванс", "получк", "преми", "продал", "перепродал",
-                                 "перевели", "перевел мне", "скинули", "вернули", "кэшбэк", "кешбэк", "кешбек", "кэшбек",
+    static let incomeTriggers = ["зарплат", "аванс", "получк", "преми", "продал", "перепродал", "перепродаж",
+                                 "перевели", "перевела мне", "мне перевела", "перевел мне", "скинули", "вернули", "кэшбэк", "кешбэк", "кешбек", "кэшбек",
                                  "доход", "заработал", "гонорар", "подработ", "дивиденд", "проценты по"]
 
-    static func parse(_ text: String, currency: String, forceIncome: Bool = false) -> [DraftExpense] {
-        let src = text.lowercased().replacingOccurrences(of: "ё", with: "е")
-        let parts = src.splitRegex(#"[;\n]+|,(?!\d)|\.(?=\s|$)|\s+(?:и|а|плюс|потом|затем|также)\s+"#)
+    static func parse(_ text: String, currency: String, forceIncome: Bool = false, ctx: TagContext = .empty) -> [DraftExpense] {
+        let parts = text.splitRegex(#"[;\n]+|,(?!\d)|\.(?=\s|$)|\s+(?:и|а|плюс|потом|затем|также)\s+"#, caseInsensitive: true)
         var out: [DraftExpense] = []
         var carry = ""
         var days = 0
         for part in parts {
-            if part.contains("позавчера") { days = 2 }
-            else if part.contains("вчера") { days = 1 }
-            else if part.contains("сегодня") { days = 0 }
-            let p = (carry + " " + part).trimmingCharacters(in: .whitespaces)
-            guard let amount = findAmount(p), amount > 0 else { carry = p; continue }
+            let lower = Tags.norm(part)
+            if lower.contains("позавчера") { days = 2 }
+            else if lower.contains("вчера") { days = 1 }
+            else if lower.contains("сегодня") { days = 0 }
+            let chunk = (carry + " " + part).trimmingCharacters(in: .whitespaces)
+            let p = Tags.norm(chunk)
+            guard let amount = findAmount(p), amount > 0 else { carry = chunk; continue }
             carry = ""
+            var d: DraftExpense
             if forceIncome || isIncomeText(p) {
                 let src = detectIncome(p)
-                out.append(DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: .other,
-                                        note: incomeNote(p, src), date: RuDate.date(daysAgo: days), source: "voice",
-                                        raw: text, isIncome: true, income: src))
-                continue
+                d = DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: .other,
+                                 note: incomeNote(p, src), date: RuDate.date(daysAgo: days), source: "voice",
+                                 raw: text, isIncome: true, income: src)
+            } else {
+                let cat = detectCategory(p)
+                d = DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: cat,
+                                 note: note(p, cat), date: RuDate.date(daysAgo: days), source: "voice", raw: text)
             }
-            let cat = detectCategory(p)
-            out.append(DraftExpense(amount: amount, currency: detectCurrency(p, fallback: currency), category: cat,
-                                    note: note(p, cat), date: RuDate.date(daysAgo: days), source: "voice", raw: text))
+            d.people = Tags.detectPeople(chunk, ctx)
+            let everyone = ctx.people + d.people.map { Person(name: $0) }
+            d.note = Tags.stripPeople(d.note, people: everyone)
+            Tags.applyRules(&d, text: p, ctx: ctx, allowKindSwitch: !forceIncome)
+            out.append(d)
         }
         if !carry.isEmpty, var last = out.popLast() {
-            if !last.isIncome && last.category == .other { last.category = detectCategory(carry) }
+            if !last.isIncome && last.category == .other {
+                last.category = detectCategory(carry)
+                if last.category != .other && last.sub == Tags.autoSub(note: last.note, groupName: SpendCategory.other.name) {
+                    last.sub = ""
+                }
+                Tags.applyRules(&last, text: Tags.norm(carry), ctx: ctx, allowKindSwitch: false)
+            }
+            for n in Tags.detectPeople(carry, ctx) where !last.people.contains(n) { last.people.append(n) }
             out.append(last)
         }
         return out

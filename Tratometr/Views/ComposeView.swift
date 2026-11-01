@@ -270,7 +270,7 @@ struct ComposeView: View {
         focused = false
         if speech.isRunning { speech.stop() }
         app.setMood(.think)
-        let result = await ExpenseParser.parse(text: t, currency: currency, forceIncome: incomeMode)
+        let result = await ExpenseParser.parse(text: t, currency: currency, forceIncome: incomeMode, ctx: TagStore.shared.context)
         busy = nil
         parsedText = text
         app.setMood(.idle)
@@ -285,7 +285,7 @@ struct ComposeView: View {
         busy = "Читаю чек…"
         errorText = nil
         app.setMood(.think)
-        let result = await ExpenseParser.parseReceipt(image, currency: currency)
+        let result = await ExpenseParser.parseReceipt(image, currency: currency, ctx: TagStore.shared.context)
         busy = nil
         app.setMood(.idle)
         if result.items.isEmpty {
@@ -306,9 +306,12 @@ struct ComposeView: View {
             let e = Expense(amount: d.amount, currency: d.currency, categoryID: d.categoryID,
                             note: d.note.trimmingCharacters(in: .whitespaces), date: d.date,
                             source: d.source, rawText: String(d.raw.prefix(400)),
-                            kind: d.isIncome ? "income" : "expense")
+                            kind: d.isIncome ? "income" : "expense",
+                            subcategory: d.sub.trimmingCharacters(in: .whitespaces),
+                            people: d.people.joined(separator: ","))
             context.insert(e)
             created.append(e)
+            TagStore.shared.remember(d)
         }
         try? context.save()
         savedTick += 1
@@ -336,8 +339,13 @@ struct ComposeView: View {
 struct DraftRow: View {
     @Binding var draft: DraftExpense
     var onDelete: () -> Void
+    @ObservedObject private var tags = TagStore.shared
     @State private var amountText = ""
     @State private var pop = 0
+    @State private var askSub = false
+    @State private var newSub = ""
+    @State private var askPerson = false
+    @State private var newPerson = ""
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -360,67 +368,131 @@ struct DraftRow: View {
                         .font(.system(size: 16, weight: .bold))
                         .monospacedDigit()
                         .foregroundStyle(draft.isIncome ? Color.good : Color.ink)
-                        .frame(width: 88)
+                        .frame(width: 84)
                         .onChange(of: amountText) { _, v in draft.amount = Money.parse(v) }
                     Text(CurrencyInfo.get(draft.currency).symbol)
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.muted)
                 }
-                HStack(spacing: 6) {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            let wasDefault = isDefaultNote
-                            draft.isIncome.toggle()
-                            if wasDefault { draft.note = draft.kindName }
-                            pop += 1
-                        }
-                    } label: {
-                        Text(draft.isIncome ? "Доход" : "Трата")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(draft.isIncome ? Color.good : Color.warm)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background((draft.isIncome ? Color.good : Color.warm).opacity(0.13), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Переключить трату и доход")
 
-                    categoryMenu {
-                        Text(draft.kindName)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(draft.color)
-                            .lineLimit(1)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(draft.color.opacity(0.13), in: Capsule())
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                                let wasDefault = isDefaultNote
+                                draft.isIncome.toggle()
+                                draft.sub = ""
+                                draft.edited = true
+                                if wasDefault { draft.note = draft.kindName }
+                                pop += 1
+                            }
+                        } label: {
+                            Chip(title: draft.isIncome ? "Доход" : "Трата", color: draft.isIncome ? .good : .warm)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityHint("Переключить трату и доход")
+
+                        categoryMenu { Chip(title: draft.kindName, color: draft.color) }
+
+                        subMenu
+
+                        DatePicker("Дата", selection: $draft.date, in: ...Date(), displayedComponents: .date)
+                            .labelsHidden()
+                            .datePickerStyle(.compact)
+                            .fixedSize()
                     }
-                    DatePicker("Дата", selection: $draft.date, in: ...Date(), displayedComponents: .date)
-                        .labelsHidden()
-                        .datePickerStyle(.compact)
-                        .scaleEffect(0.82, anchor: .leading)
-                        .frame(maxWidth: 110, alignment: .leading)
-                    Spacer(minLength: 0)
-                    Button(action: onDelete) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.muted)
-                            .frame(width: 26, height: 26)
-                            .background(Color.surface, in: Circle())
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(peopleChoices, id: \.self) { name in
+                            let on = draft.people.contains(name)
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                    if on { draft.people.removeAll { $0 == name } } else { draft.people.append(name) }
+                                }
+                            } label: {
+                                Chip(title: on ? "с " + Tags.instrumental(name) : name,
+                                     symbol: on ? "heart.fill" : "heart", color: .bubble, filled: on)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button { newPerson = ""; askPerson = true } label: {
+                            Chip(title: "Кто-то ещё", symbol: "person.badge.plus", color: .bubble, filled: false)
+                        }
+                        .buttonStyle(.plain)
+
+                        Button(action: onDelete) {
+                            Chip(title: "Убрать", symbol: "xmark", color: .muted, filled: false)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Убрать")
                 }
             }
         }
         .padding(12)
         .background(Color.appBG, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .onAppear { amountText = Money.plain(draft.amount) }
+        .alert("Новая подкатегория", isPresented: $askSub) {
+            TextField("Например, Столовая", text: $newSub)
+            Button("Добавить") {
+                let s = Tags.capitalized(newSub.trimmingCharacters(in: .whitespaces))
+                guard !s.isEmpty else { return }
+                draft.sub = s
+                draft.edited = true
+                tags.registerSub(isIncome: draft.isIncome, group: draft.groupID, sub: s)
+                pop += 1
+            }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Внутри «\(draft.kindName)». Я запомню её и дальше буду раскладывать такие траты сам.")
+        }
+        .alert("С кем была трата?", isPresented: $askPerson) {
+            TextField("Имя", text: $newPerson)
+            Button("Добавить") {
+                if let name = tags.addPerson(newPerson), !draft.people.contains(name) {
+                    draft.people.append(name)
+                }
+            }
+            Button("Отмена", role: .cancel) {}
+        }
+    }
+
+    private var peopleChoices: [String] {
+        Tags.uniq(tags.people.map(\.name) + draft.people)
     }
 
     private var isDefaultNote: Bool {
         draft.note.isEmpty
             || SpendCategory.allCases.contains { $0.name == draft.note }
             || IncomeSource.allCases.contains { $0.name == draft.note }
+    }
+
+    private var subMenu: some View {
+        let options = Tags.uniq(tags.subs(isIncome: draft.isIncome, group: draft.groupID) + (draft.sub.isEmpty ? [] : [draft.sub]))
+        return Menu {
+            Button {
+                draft.sub = ""
+                draft.edited = true
+            } label: {
+                if draft.sub.isEmpty { Label("Без уточнения", systemImage: "checkmark") } else { Text("Без уточнения") }
+            }
+            ForEach(options, id: \.self) { name in
+                Button {
+                    draft.sub = name
+                    draft.edited = true
+                    pop += 1
+                } label: {
+                    if draft.sub == name { Label(name, systemImage: "checkmark") } else { Text(name) }
+                }
+            }
+            Divider()
+            Button { newSub = ""; askSub = true } label: { Label("Новая подкатегория…", systemImage: "plus") }
+        } label: {
+            Chip(title: draft.sub.isEmpty ? "Уточнить" : draft.sub,
+                 symbol: draft.sub.isEmpty ? "plus" : "tag.fill",
+                 color: draft.color, filled: !draft.sub.isEmpty)
+        }
     }
 
     private func categoryMenu<L: View>(@ViewBuilder label: () -> L) -> some View {
@@ -430,6 +502,8 @@ struct DraftRow: View {
                     Button {
                         let wasDefault = isDefaultNote
                         draft.income = s
+                        draft.sub = ""
+                        draft.edited = true
                         if wasDefault { draft.note = s.name }
                         pop += 1
                     } label: { Label(s.name, systemImage: s.symbol) }
@@ -439,6 +513,8 @@ struct DraftRow: View {
                     Button {
                         let wasDefault = isDefaultNote
                         draft.category = c
+                        draft.sub = ""
+                        draft.edited = true
                         if wasDefault { draft.note = c.name }
                         pop += 1
                     } label: { Label(c.name, systemImage: c.symbol) }

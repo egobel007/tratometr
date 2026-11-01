@@ -262,8 +262,8 @@ struct BalanceView: View {
                         HStack(spacing: 12) {
                             ItemIcon(symbol: s.source.symbol, color: s.source.color)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(s.source.name).font(.body.weight(.semibold)).foregroundStyle(Color.ink)
-                                Text("\(s.count) \(plural(s.count, "поступление", "поступления", "поступлений")) · \(total > 0 ? Int((s.amount / total * 100).rounded()) : 0)%")
+                                Text(s.name).font(.body.weight(.semibold)).foregroundStyle(Color.ink)
+                                Text((s.detail.map { $0 + " · " } ?? "") + "\(s.count) \(plural(s.count, "поступление", "поступления", "поступлений")) · \(total > 0 ? Int((s.amount / total * 100).rounded()) : 0)%")
                                     .font(.caption)
                                     .foregroundStyle(Color.muted)
                             }
