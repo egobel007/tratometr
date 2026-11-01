@@ -38,3 +38,28 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+  selftest:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for the iOS simulator
+        run: |
+          xcodebuild -project Tratometr.xcodeproj -target Tratometr -sdk iphonesimulator -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO build > sim.log 2>&1 || true
+          grep -E "error:" sim.log | sort -u | head -40 | while IFS= read -r line; do echo "::error::${line}"; done
+          test -d build/Debug-iphonesimulator/Tratometr.app
+
+      - name: Run self-test on a simulated iPhone
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for k,v in sorted(d.items(), reverse=True) if 'iOS' in k for x in v if x['name'].startswith('iPhone')))")
+          echo "Simulator $UDID"
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/Debug-iphonesimulator/Tratometr.app
+          ( sleep 240; pkill -f "simctl launch" ) &
+          xcrun simctl launch --console-pty "$UDID" com.egorbel.tratometr -selftest 2>&1 | tee selftest.log || true
+          grep "FAIL" selftest.log | while IFS= read -r line; do echo "::error::${line}"; done
+          grep -q "SELFTEST OK" selftest.log
+

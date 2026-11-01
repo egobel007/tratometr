@@ -247,20 +247,25 @@ struct ComposeView: View {
         app.orb.burst(top.isIncome ? top.income.rgb : top.category.rgb)
 
         let net = items.filter { $0.currency == currency }.reduce(0) { $0 + ($1.isIncome ? $1.amount : -$1.amount) }
+        let unsure = created.first { !$0.isIncome && $0.categoryID == SpendCategory.other.rawValue }
         let message: String
         if items.count == 1 {
-            let name = top.sub.isEmpty ? top.kindName : top.sub
-            let amount = (top.isIncome ? "+" : "") + Money.format(top.amount, top.currency)
+            let name = top.isIncome ? top.income.name : top.category.name
+            let amount = (top.isIncome ? "+" : "−") + Money.format(top.amount, top.currency)
             let who = top.people.isEmpty ? "" : " · с " + top.people.map { Tags.instrumental($0) }.joined(separator: ", ")
-            message = "\(name) · \(amount)\(who)"
+            message = unsure != nil ? "Не понял категорию · \(amount)" : "\(name) · \(amount)\(who)"
         } else {
             message = "Записал \(items.count) \(plural(items.count, "запись", "записи", "записей")) · \(Money.signed(net, currency))"
         }
         let ctx = context
+        let fixTarget = unsure ?? (items.count == 1 ? created.first : nil)
+        let appState = app
+        var fixAction: (() -> Void)? = nil
+        if let e = fixTarget { fixAction = { appState.quickFix = e } }
         app.showToast(message, undo: {
             for e in created { ctx.delete(e) }
             try? ctx.save()
-        })
+        }, actionTitle: fixTarget == nil ? nil : (unsure != nil ? "Выбрать" : "Изменить"), action: fixAction)
         dismiss()
     }
 }

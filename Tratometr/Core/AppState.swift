@@ -13,6 +13,8 @@ struct ToastMessage: Identifiable {
     let id = UUID()
     let text: String
     let undo: (() -> Void)?
+    var actionTitle: String? = nil
+    var action: (() -> Void)? = nil
 }
 
 final class AppState: ObservableObject {
@@ -21,6 +23,8 @@ final class AppState: ObservableObject {
     @Published var showSettings = false
     @Published var toast: ToastMessage?
     @Published var mood: OrbMood = .idle
+    /// Record opened in the one-tap category picker
+    @Published var quickFix: Expense?
 
     let orb = OrbEngine()
     let speech = SpeechRecognizer()
@@ -41,10 +45,11 @@ final class AppState: ObservableObject {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { tab = t }
     }
 
-    func showToast(_ text: String, undo: (() -> Void)? = nil) {
-        let message = ToastMessage(text: text, undo: undo)
+    func showToast(_ text: String, undo: (() -> Void)? = nil, actionTitle: String? = nil, action: (() -> Void)? = nil) {
+        let message = ToastMessage(text: text, undo: undo, actionTitle: actionTitle, action: action)
         withAnimation(.spring(response: 0.45, dampingFraction: 0.8)) { toast = message }
-        DispatchQueue.main.asyncAfter(deadline: .now() + (undo == nil ? 3.2 : 6)) { [weak self] in
+        let seconds: Double = (undo == nil && action == nil) ? 3.2 : 7
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self, self.toast?.id == message.id else { return }
             withAnimation(.easeOut(duration: 0.25)) { self.toast = nil }
         }

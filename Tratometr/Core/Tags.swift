@@ -58,6 +58,35 @@ final class TagStore: ObservableObject {
             UserDefaults.standard.set(true, forKey: "tags_seeded")
             if people.isEmpty { people = [Person(name: "Арина", aliases: ["девушка"])] }
         }
+        sanitize()
+    }
+
+    /// Older versions could learn "Пятёрочка → Другое / Супермаркет". Point such rules to the real category.
+    private func sanitize() {
+        var newRules = rules
+        var changed = false
+        for (k, r) in rules where r.kind == "expense" && r.group == SpendCategory.other.rawValue {
+            if let g = Tags.group(forLabel: r.sub) {
+                newRules[k] = TagRule(kind: "expense", group: g.group, sub: g.sub)
+            } else {
+                newRules[k] = nil
+            }
+            changed = true
+        }
+        var subs = customSubs
+        let otherKey = Tags.key(false, SpendCategory.other.rawValue)
+        for name in customSubs[otherKey] ?? [] {
+            guard let g = Tags.group(forLabel: name) else { continue }
+            subs[otherKey]?.removeAll { $0 == name }
+            let target = Tags.key(false, g.group)
+            let known = (Tags.seeds[target] ?? []).map(\.0) + (subs[target] ?? [])
+            if !g.sub.isEmpty && !known.contains(g.sub) { subs[target, default: []].append(g.sub) }
+            changed = true
+        }
+        guard changed else { return }
+        rules = newRules
+        customSubs = subs
+        persist()
     }
 
     private func persist() {
@@ -304,7 +333,7 @@ enum Tags {
     static let seeds: [String: [(String, [String])]] = [
         "expense:cafe": [
             ("Столовая", ["столов"]),
-            ("Фастфуд", ["фастфуд", "макдон", "kfc", "кфс", "бургер", "шаурм", "шаверм", "вкусно и точка", "хот-дог", "хотдог", "донер"]),
+            ("Фастфуд", ["фастфуд", "макдон", "макдак", "kfc", "кфс", "бургер", "шаурм", "шаверм", "вкусно и точка", "хот-дог", "хотдог", "донер"]),
             ("Ресторан", ["ресторан", "рестик"]),
             ("Доставка еды", ["доставк"]),
             ("Бар", ["бар", "пиво", "пива", "коктейл", "вино", "вина"]),
@@ -458,12 +487,48 @@ enum Tags {
                 d.category = SpendCategory(rawValue: r.group) ?? d.category
             }
             if !r.sub.isEmpty { d.sub = r.sub }
-            return
+        } else {
+            if d.sub.isEmpty { d.sub = seedSub(text, isIncome: d.isIncome, group: d.groupID) }
+            if d.sub.isEmpty { d.sub = customSub(text, list: ctx.subs[key(d.isIncome, d.groupID)] ?? []) }
         }
-        if d.sub.isEmpty { d.sub = seedSub(text, isIncome: d.isIncome, group: d.groupID) }
-        if d.sub.isEmpty { d.sub = customSub(text, list: ctx.subs[key(d.isIncome, d.groupID)] ?? []) }
+        fixOther(&d, text: text)
         let isOther = d.isIncome ? d.income == .other : d.category == .other
         if d.sub.isEmpty && isOther { d.sub = autoSub(note: d.note, groupName: d.kindName) }
+    }
+
+    /// Last safety net: «Другое» only when nothing at all points to a real category.
+    static func fixOther(_ d: inout DraftExpense, text: String) {
+        guard !d.isIncome, d.category == .other else { return }
+        if let g = group(forLabel: d.sub), let c = SpendCategory(rawValue: g.group) {
+            d.category = c
+            d.sub = g.sub.isEmpty ? seedSub(text + " " + d.note, isIncome: false, group: c.rawValue) : g.sub
+            return
+        }
+        let local = LocalParser.detectCategory(text + " " + d.note)
+        if local != .other {
+            d.category = local
+            d.sub = seedSub(text + " " + d.note, isIncome: false, group: local.rawValue)
+        }
+    }
+
+    /// What a label really means: "Супермаркет" → Продукты/Супермаркет, "Связь" → Связь и подписки/Связь,
+    /// "Покупки" → Покупки и техника. nil when it is not about any known category.
+    static func group(forLabel label: String, isIncome: Bool = false) -> (group: String, sub: String)? {
+        let n = norm(label).trimmingCharacters(in: .whitespaces)
+        guard n.count >= 3 else { return nil }
+        let prefix = isIncome ? "income:" : "expense:"
+        for (k, list) in seeds where k.hasPrefix(prefix) {
+            if let hit = list.first(where: { norm($0.0) == n }) { return (String(k.dropFirst(prefix.count)), hit.0) }
+        }
+        guard let first = words(n).first.flatMap(stem5) else { return nil }
+        if isIncome {
+            for s in IncomeSource.allCases where s != .other && words(s.name).compactMap(stem5).contains(first) { return (s.rawValue, "") }
+            let d = LocalParser.detectIncome(n)
+            return d == .other ? nil : (d.rawValue, capitalized(label))
+        }
+        for c in SpendCategory.allCases where c != .other && words(c.name).compactMap(stem5).contains(first) { return (c.rawValue, "") }
+        let d = LocalParser.detectCategory(n)
+        return d == .other ? nil : (d.rawValue, capitalized(label))
     }
 
     /// Tidy up a record that came from Claude.
@@ -477,10 +542,6 @@ enum Tags {
         })
         let everyone = ctx.people + d.people.map { Person(name: $0) }
         d.note = stripPeople(d.note, people: everyone)
-        if !d.isIncome && d.category == .other {
-            let local = LocalParser.detectCategory(d.note + " " + d.sub)
-            if local != .other { d.category = local }
-        }
         applyRules(&d, text: d.note + " " + d.sub, ctx: ctx)
     }
 }

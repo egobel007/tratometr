@@ -279,13 +279,25 @@ struct ToastView: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(Color.appBG)
                 .lineLimit(2)
-            if let undo = message.undo {
-                Button("Отменить") {
-                    undo()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let title = message.actionTitle, let action = message.action {
+                Button(title) {
                     withAnimation { app.toast = nil }
+                    action()
                 }
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(Color.warm)
+            }
+            if let undo = message.undo {
+                Button {
+                    undo()
+                    withAnimation { app.toast = nil }
+                } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.appBG.opacity(0.75))
+                }
+                .accessibilityLabel("Отменить")
             }
         }
         .padding(.horizontal, 16)

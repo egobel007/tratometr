@@ -6,6 +6,7 @@ struct RootView: View {
     @Query(sort: \Expense.date, order: .reverse) private var records: [Expense]
     @AppStorage("currency") private var currency = "RUB"
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.modelContext) private var modelContext
 
     var body: some View {
         let real = records.map { SpendItem($0) }
@@ -48,11 +49,25 @@ struct RootView: View {
                 .presentationBackground(Color.surface)
                 .presentationDragIndicator(.visible)
         }
+        .sheet(item: $app.quickFix) { e in
+            QuickCategoryView(expense: e)
+                .environmentObject(app)
+                .presentationDetents([.medium, .large])
+                .presentationCornerRadius(28)
+                .presentationBackground(Color.surface)
+                .presentationDragIndicator(.visible)
+        }
         .sheet(isPresented: $app.showSettings) {
             SettingsView(items: real)
                 .environmentObject(app)
         }
         .onAppear { app.motion.start() }
+        .task {
+            let fixed = Repair.run(modelContext)
+            if fixed > 0 {
+                app.showToast("Исправил категорию у \(fixed) \(plural(fixed, "записи", "записей", "записей"))")
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { app.motion.start() } else { app.motion.stop() }
         }
