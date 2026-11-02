@@ -41,6 +41,26 @@ final class AppState: ObservableObject {
         orb.apply(m)
     }
 
+    /// Links from the widget: tratometr://record, tratometr://scan, tratometr://text
+    func open(_ url: URL) {
+        guard url.scheme == "tratometr" else { return }
+        let start: ComposeStart
+        switch url.host {
+        case "scan": start = .scan
+        case "text": start = .text
+        default: start = .voice
+        }
+        showSettings = false
+        quickFix = nil
+        tab = .home
+        if compose != nil {
+            compose = nil
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in self?.compose = start }
+        } else {
+            compose = start
+        }
+    }
+
     func go(_ t: AppTab) {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { tab = t }
     }

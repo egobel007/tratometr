@@ -1,6 +1,7 @@
 #if DEBUG
 import Foundation
 import SwiftData
+import SwiftUI
 
 /// Runs in the iOS simulator on every cloud build: `simctl launch … -selftest`.
 /// Prints one line per check and exits with 1 if anything is wrong.
@@ -55,6 +56,7 @@ enum SelfTest {
         Case(text: "кэшбэк 1200", income: true, group: "refund"),
     ]
 
+    @MainActor
     static func run() -> Never {
         var total = 0
         var failed = 0
@@ -119,6 +121,52 @@ enum SelfTest {
         _ = LocalParser.parse("ООО Ромашка кассовый чек оплата картой итого 2350", currency: "RUB", ctx: ctx)
         let receipt = ReceiptOCR.extract(lines: ["ООО \"РОМАШКА\"", "Кассовый чек", "Молоко 89,90", "ИТОГО =2 350,00"], currency: "RUB")
         check(receipt.first.map { abs($0.amount - 2350) < 0.01 } == true, "чек: итог \(receipt.first?.amount ?? 0)")
+
+        // draw every screen with real-looking data: periods, offsets, selections, empty state
+        do {
+            let container = try ModelContainer(for: Expense.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+            let context = container.mainContext
+            let demo = DemoData.make(currency: "RUB")
+            for d in demo {
+                context.insert(Expense(amount: d.amount, currency: d.currency,
+                                       categoryID: d.isIncome ? d.income.rawValue : d.category.rawValue,
+                                       note: d.note, date: d.date, source: d.source,
+                                       kind: d.isIncome ? "income" : "expense", subcategory: d.sub,
+                                       people: d.people.joined(separator: ",")))
+            }
+            try context.save()
+            let spends = demo.filter { !$0.isIncome }
+            let incomes = demo.filter { $0.isIncome }
+            let app = AppState()
+
+            func draw<V: View>(_ view: V, _ name: String) {
+                let r = ImageRenderer(content: view
+                    .environmentObject(app)
+                    .modelContainer(container)
+                    .frame(width: 393, height: 2400))
+                r.scale = 1
+                check(r.uiImage != nil, "экран: \(name)")
+            }
+
+            let firstCat = Stats.slices(Stats.filter(spends, Stats.interval(.week, offset: 0)), detailed: false).first?.id
+            for p in Period.allCases {
+                for off in [0, -1, -2, -3] {
+                    let day = Stats.interval(p, offset: off).start
+                    draw(StatsView(items: spends, isDemo: false, period: p, offset: off), "аналитика \(p.rawValue) \(off)")
+                    draw(StatsView(items: spends, isDemo: false, period: p, offset: off, selected: firstCat, selectedDay: day),
+                         "аналитика \(p.rawValue) \(off) с выбором")
+                }
+            }
+            draw(StatsView(items: [], isDemo: true, period: .month), "аналитика пустая")
+            draw(HomeView(spends: spends, incomes: incomes, isDemo: false), "главная")
+            draw(HomeView(spends: [], incomes: [], isDemo: true), "главная пустая")
+            draw(BalanceView(spends: spends, incomes: incomes, isDemo: false), "баланс")
+            draw(HistoryView(items: demo, isDemo: false), "история")
+            WidgetSync.update(items: demo, currency: "RUB")
+            check(true, "данные для виджета записаны")
+        } catch {
+            check(false, "экраны: \(error)")
+        }
 
         print("SELFTEST \(failed == 0 ? "OK" : "FAILED") \(total - failed)/\(total)")
         fflush(stdout)

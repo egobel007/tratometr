@@ -29,6 +29,19 @@ struct CatTotal: Identifiable {
     var id: String { category.rawValue }
 }
 
+/// Records of one day, newest first
+struct DayGroup: Identifiable {
+    let day: Date
+    let items: [SpendItem]
+    var id: Date { day }
+
+    static func make(_ items: [SpendItem], limit: Int = 2000) -> [DayGroup] {
+        Dictionary(grouping: items.prefix(limit)) { RuDate.cal.startOfDay(for: $0.date) }
+            .map { DayGroup(day: $0.key, items: $0.value.sorted { $0.date > $1.date }) }
+            .sorted { $0.day > $1.day }
+    }
+}
+
 struct DayTotal: Identifiable {
     let date: Date
     let total: Double

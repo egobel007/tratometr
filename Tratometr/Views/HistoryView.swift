@@ -12,21 +12,13 @@ struct HistoryView: View {
     @State private var query = ""
     @State private var editing: Expense?
 
-    private struct DayGroup: Identifiable {
-        let day: Date
-        let items: [SpendItem]
-        var id: Date { day }
-    }
-
     var body: some View {
         let q = Tags.norm(query.trimmingCharacters(in: .whitespaces))
         let filtered = q.isEmpty ? items : items.filter {
             Tags.norm($0.note).contains(q) || Tags.norm($0.kindName).contains(q) || Tags.norm($0.sub).contains(q)
                 || $0.people.contains { Tags.norm($0).hasPrefix(Tags.nameStem(q)) } || Money.plain($0.amount).contains(q)
         }
-        let groups = Dictionary(grouping: filtered.prefix(600)) { RuDate.cal.startOfDay(for: $0.date) }
-            .map { DayGroup(day: $0.key, items: $0.value.sorted { $0.date > $1.date }) }
-            .sorted { $0.day > $1.day }
+        let groups = DayGroup.make(filtered)
 
         NavigationStack {
             List {
@@ -56,7 +48,7 @@ struct HistoryView: View {
                                 }
                         }
                     } header: {
-                        dayHeader(g)
+                        DayHeader(group: g, currency: currency)
                     }
                 }
                 Color.clear.frame(height: 90).listRowBackground(Color.clear).listRowSeparator(.hidden)
@@ -68,21 +60,6 @@ struct HistoryView: View {
             .searchable(text: $query, prompt: "Кофе, Арина, 1500")
         }
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
-    }
-
-    private func dayHeader(_ g: DayGroup) -> some View {
-        let main = g.items.filter { $0.currency == currency }
-        let spent = Stats.total(main.filter { !$0.isIncome })
-        let came = Stats.total(main.filter { $0.isIncome })
-        return HStack(spacing: 8) {
-            Text(RuDate.dayLabel(g.day)).font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink)
-            Spacer()
-            if came > 0 { Text("+" + Money.format(came, currency)).foregroundStyle(Color.good) }
-            if spent > 0 { Text("−" + Money.format(spent, currency)).foregroundStyle(Color.muted) }
-        }
-        .font(.subheadline)
-        .monospacedDigit()
-        .textCase(nil)
     }
 
     private func open(_ item: SpendItem) {

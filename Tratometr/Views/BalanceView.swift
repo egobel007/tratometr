@@ -181,24 +181,48 @@ struct BalanceView: View {
 
     @ViewBuilder
     private func sourcesCard(_ items: [SpendItem], total: Double) -> some View {
-        let sources = Flow.bySource(items)
-        if !sources.isEmpty {
+        let groups = Dictionary(grouping: items, by: \.income)
+            .map { SourceGroup(source: $0.key, items: $0.value, amount: Stats.total($0.value)) }
+            .sorted { $0.amount > $1.amount }
+        if !groups.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 SectionTitle(text: "Откуда пришло")
-                ForEach(sources) { s in
-                    HStack(spacing: 12) {
-                        ItemIcon(symbol: s.source.symbol, color: s.source.color)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(s.name).font(.body.weight(.medium)).foregroundStyle(Color.ink)
-                            Text((s.detail.map { $0 + " · " } ?? "") + "\(total > 0 ? Int((s.amount / total * 100).rounded()) : 0)%")
-                                .font(.caption)
-                                .foregroundStyle(Color.muted)
+                ForEach(groups) { g in
+                    let subs = Flow.bySource(g.items)
+                    let showSubs = subs.count > 1 || subs.first.map { !$0.sub.isEmpty } == true
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 12) {
+                            ItemIcon(symbol: g.source.symbol, color: g.source.color)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(g.source.name).font(.body.weight(.medium)).foregroundStyle(Color.ink)
+                                Text("\(g.items.count) \(plural(g.items.count, "поступление", "поступления", "поступлений")) · \(total > 0 ? Int((g.amount / total * 100).rounded()) : 0)%")
+                                    .font(.caption)
+                                    .foregroundStyle(Color.muted)
+                            }
+                            Spacer()
+                            Text("+" + Money.format(g.amount, currency))
+                                .font(.body.weight(.semibold))
+                                .monospacedDigit()
+                                .foregroundStyle(Color.good)
                         }
-                        Spacer()
-                        Text("+" + Money.format(s.amount, currency))
-                            .font(.body.weight(.semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(Color.good)
+                        if showSubs {
+                            VStack(spacing: 6) {
+                                ForEach(subs) { s in
+                                    HStack {
+                                        Circle().fill(g.source.color).frame(width: 6, height: 6)
+                                        Text(s.sub.isEmpty ? "Без уточнения" : s.sub)
+                                            .font(.subheadline)
+                                            .foregroundStyle(Color.ink)
+                                        Spacer()
+                                        Text("+" + Money.format(s.amount, currency))
+                                            .font(.subheadline)
+                                            .monospacedDigit()
+                                            .foregroundStyle(Color.muted)
+                                    }
+                                }
+                            }
+                            .padding(.leading, 54)
+                        }
                     }
                     .padding(.vertical, 6)
                 }
@@ -219,4 +243,11 @@ struct BalanceView: View {
         }
         editing = records.first { $0.uid.uuidString == item.id }
     }
+}
+
+struct SourceGroup: Identifiable {
+    let source: IncomeSource
+    let items: [SpendItem]
+    let amount: Double
+    var id: String { source.rawValue }
 }

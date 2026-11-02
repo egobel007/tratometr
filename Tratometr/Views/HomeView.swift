@@ -22,7 +22,7 @@ struct HomeView: View {
         let month = Stats.total(Stats.filter(main, monthIv))
         let monthIn = Stats.total(Stats.filter(mainIn, monthIv))
         let dayOfMonth = Double(RuDate.cal.component(.day, from: Date()))
-        let recent = (spends + incomes).sorted { $0.date > $1.date }.prefix(6)
+        let groups = DayGroup.make((spends + incomes).sorted { $0.date > $1.date })
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
@@ -39,23 +39,27 @@ struct HomeView: View {
                 orbBlock.riseIn(0.1)
 
                 HStack {
-                    Text("Последние").font(.headline).fontWidth(.expanded).foregroundStyle(Color.ink)
+                    Text("История").font(.headline).fontWidth(.expanded).foregroundStyle(Color.ink)
                     Spacer()
-                    Button("Все") { app.go(.history) }
-                        .font(.subheadline)
+                    Button { app.go(.history) } label: { Image(systemName: "magnifyingglass") }
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Color.muted)
+                        .accessibilityLabel("Поиск")
                 }
                 .padding(.top, 18)
-                .padding(.bottom, 4)
                 .riseIn(0.16)
 
-                VStack(spacing: 0) {
-                    ForEach(Array(recent)) { item in
-                        Button { open(item) } label: { ExpenseRow(item: item) }
-                            .buttonStyle(.plain)
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(groups) { g in
+                        DayHeader(group: g, currency: currency)
+                            .padding(.top, 18)
+                            .padding(.bottom, 2)
+                        ForEach(g.items) { item in
+                            Button { open(item) } label: { ExpenseRow(item: item, showDate: false) }
+                                .buttonStyle(.plain)
+                        }
                     }
                 }
-                .riseIn(0.2)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 120)

@@ -6,14 +6,48 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B7000000000000000000000B /* TratometrWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B70000000000000000000001 /* TratometrWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		B7000000000000000000000C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A70000000000000000000009 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = B70000000000000000000006;
+			remoteInfo = TratometrWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B7000000000000000000000A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				B7000000000000000000000B /* TratometrWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		A70000000000000000000001 /* Tratometr.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Tratometr.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B70000000000000000000001 /* TratometrWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TratometrWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A70000000000000000000002 /* Tratometr */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Tratometr;
+			sourceTree = "<group>";
+		};
+		B70000000000000000000002 /* TratometrWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TratometrWidget;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,12 +60,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B70000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		A70000000000000000000004 = {
 			isa = PBXGroup;
 			children = (
+				B70000000000000000000002 /* TratometrWidget */,
 				A70000000000000000000002 /* Tratometr */,
 				A70000000000000000000005 /* Products */,
 			);
@@ -41,6 +83,7 @@
 			isa = PBXGroup;
 			children = (
 				A70000000000000000000001 /* Tratometr.app */,
+				B70000000000000000000001 /* TratometrWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -55,10 +98,12 @@
 				A70000000000000000000007 /* Sources */,
 				A70000000000000000000003 /* Frameworks */,
 				A70000000000000000000008 /* Resources */,
+				B7000000000000000000000A /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				B7000000000000000000000D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A70000000000000000000002 /* Tratometr */,
@@ -69,6 +114,28 @@
 			productName = Tratometr;
 			productReference = A70000000000000000000001 /* Tratometr.app */;
 			productType = "com.apple.product-type.application";
+		};
+		B70000000000000000000006 /* TratometrWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B70000000000000000000007 /* Build configuration list for PBXNativeTarget "TratometrWidgetExtension" */;
+			buildPhases = (
+				B70000000000000000000004 /* Sources */,
+				B70000000000000000000003 /* Frameworks */,
+				B70000000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				B70000000000000000000002 /* TratometrWidget */,
+			);
+			name = TratometrWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = TratometrWidgetExtension;
+			productReference = B70000000000000000000001 /* TratometrWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +148,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A70000000000000000000006 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					B70000000000000000000006 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -101,12 +171,20 @@
 			projectRoot = "";
 			targets = (
 				A70000000000000000000006 /* Tratometr */,
+				B70000000000000000000006 /* TratometrWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A70000000000000000000008 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B70000000000000000000005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -123,7 +201,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B70000000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B7000000000000000000000D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = B70000000000000000000006 /* TratometrWidgetExtension */;
+			targetProxy = B7000000000000000000000C /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A7000000000000000000000E /* Debug */ = {
@@ -194,7 +287,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/App.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Тратометр";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Камера нужна, чтобы сфотографировать чек и прочитать сумму.";
@@ -230,7 +325,9 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
+				CODE_SIGN_ENTITLEMENTS = Config/App.entitlements;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/App-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Тратометр";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.finance";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Камера нужна, чтобы сфотографировать чек и прочитать сумму.";
@@ -257,6 +354,62 @@
 			};
 			name = Release;
 		};
+		B70000000000000000000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Тратометр";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.egorbel.tratometr.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		B70000000000000000000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Config/Widget.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Widget-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Тратометр";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.egorbel.tratometr.widget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -274,6 +427,15 @@
 			buildConfigurations = (
 				A7000000000000000000000C /* Debug */,
 				A7000000000000000000000D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B70000000000000000000007 /* Build configuration list for PBXNativeTarget "TratometrWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B70000000000000000000008 /* Debug */,
+				B70000000000000000000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

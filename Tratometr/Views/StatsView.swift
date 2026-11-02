@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import Charts
 
 struct StatsView: View {
     @EnvironmentObject private var app: AppState
@@ -11,16 +10,25 @@ struct StatsView: View {
     @AppStorage("budget") private var budget: Double = 0
     @Query(sort: \Expense.date, order: .reverse) private var records: [Expense]
 
-    @State private var period: Period = .week
-    @State private var offset = 0
+    @State private var period: Period
+    @State private var offset: Int
     @State private var selected: String?
     @State private var openPerson: String?
-    @State private var angle: Double?
     @State private var selectedDay: Date?
     @State private var shown = false
     @State private var advice: String?
     @State private var adviceBusy = false
     @State private var editing: Expense?
+
+    init(items: [SpendItem], isDemo: Bool, period: Period = .week, offset: Int = 0,
+         selected: String? = nil, selectedDay: Date? = nil) {
+        self.items = items
+        self.isDemo = isDemo
+        _period = State(initialValue: period)
+        _offset = State(initialValue: offset)
+        _selected = State(initialValue: selected)
+        _selectedDay = State(initialValue: selectedDay)
+    }
 
     var body: some View {
         let main = items.filter { $0.currency == currency }
@@ -30,9 +38,10 @@ struct StatsView: View {
         let total = Stats.total(current)
         let ptotal = Stats.total(previous)
         let cats = Stats.slices(current, detailed: false)
-        let prevByCat = Dictionary(uniqueKeysWithValues: Stats.slices(previous, detailed: false).map { ($0.id, $0.amount) })
+        var prevByCat: [String: Double] = [:]
+        for s in Stats.slices(previous, detailed: false) { prevByCat[s.id, default: 0] += s.amount }
 
-        ScrollView {
+        return ScrollView {
             VStack(spacing: 12) {
                 ScreenTitle(eyebrow: "Аналитика", title: "Куда ушли деньги")
 
@@ -64,17 +73,6 @@ struct StatsView: View {
         .onAppear { replay() }
         .onChange(of: period) { _, _ in offset = 0; resetSelection(); replay() }
         .onChange(of: offset) { _, _ in resetSelection(); replay() }
-        .onChange(of: angle) { _, a in
-            guard let a else { return }
-            var acc = 0.0
-            for c in cats {
-                acc += c.amount
-                if a <= acc {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) { selected = c.id }
-                    break
-                }
-            }
-        }
         .sheet(item: $editing) { EditExpenseView(expense: $0) }
     }
 
@@ -87,9 +85,8 @@ struct StatsView: View {
             Text(Stats.label(period, offset: offset))
                 .font(.headline)
                 .foregroundStyle(Color.ink)
-                .contentTransition(.opacity)
             Spacer()
-            navButton("chevron.right") { offset += 1 }
+            navButton("chevron.right") { if offset < 0 { offset += 1 } }
                 .disabled(offset >= 0)
                 .opacity(offset >= 0 ? 0.3 : 1)
         }
@@ -112,19 +109,17 @@ struct StatsView: View {
 
     private func summaryBlock(total: Double, ptotal: Double, count: Int, iv: DateInterval) -> some View {
         VStack(spacing: 8) {
-            Text(Money.format(total, currency))
+            Text(Money.signed(-total, currency))
                 .font(.system(size: 40, weight: .semibold))
                 .fontWidth(.expanded)
                 .foregroundStyle(Color.ink)
                 .lineLimit(1)
                 .minimumScaleFactor(0.5)
-                .contentTransition(.numericText(value: total))
-                .animation(.snappy, value: total)
 
             if ptotal > 0 && total > 0 {
                 let ch = (total - ptotal) / ptotal
                 let flat = abs(ch) < 0.03
-                Text(flat ? "примерно как по \(period.prevPhrase)" : "\(ch > 0 ? "↑" : "↓") \(Int((abs(ch) * 100).rounded()))% к \(period.prevPhrase)")
+                Text(flat ? "примерно как по \(period.prevPhrase)" : "\(ch > 0 ? "↑" : "↓") на \(Int((abs(ch) * 100).rounded()))% \(ch > 0 ? "больше" : "меньше"), чем по \(period.prevPhrase)")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(flat ? Color.muted : (ch > 0 ? Color.bad : Color.good))
                     .padding(.horizontal, 10)
@@ -154,21 +149,8 @@ struct StatsView: View {
             SectionTitle(text: "По категориям")
 
             ZStack {
-                if cats.isEmpty {
-                    Circle().stroke(Color.surface2, lineWidth: 22).padding(11)
-                } else {
-                    Chart(cats) { c in
-                        SectorMark(angle: .value("Сумма", c.amount),
-                                   innerRadius: .ratio(0.64),
-                                   outerRadius: .ratio(selected == c.id ? 1.0 : 0.94),
-                                   angularInset: 1.5)
-                            .cornerRadius(5)
-                            .foregroundStyle(c.color)
-                            .opacity(selected == nil || selected == c.id ? 1 : 0.28)
-                    }
-                    .chartLegend(.hidden)
-                    .chartAngleSelection(value: $angle)
-                }
+                Donut(slices: cats, selected: selected, shown: shown)
+                    .frame(width: 210, height: 210)
                 VStack(spacing: 2) {
                     let sel = selected.flatMap { s in cats.first { $0.id == s } }
                     let selAmount = sel?.amount ?? total
@@ -178,7 +160,6 @@ struct StatsView: View {
                         .foregroundStyle(Color.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
-                        .contentTransition(.numericText(value: selAmount))
                     Text(sel.map { s in "\(total > 0 ? Int((selAmount / total * 100).rounded()) : 0)% · \(s.name)" } ?? "всего")
                         .font(.caption)
                         .foregroundStyle(Color.muted)
@@ -187,12 +168,8 @@ struct StatsView: View {
                 }
                 .frame(width: 130)
             }
-            .frame(height: 230)
             .frame(maxWidth: .infinity)
-            .rotation3DEffect(.degrees(shown ? 0 : 62), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
-            .rotationEffect(.degrees(shown ? 0 : -50))
-            .scaleEffect(shown ? 1 : 0.85)
-            .opacity(shown ? 1 : 0)
+            .padding(.vertical, 6)
 
             if cats.isEmpty {
                 Text("Здесь появятся категории, как только будут траты.")
@@ -209,14 +186,14 @@ struct StatsView: View {
                             }
                         } label: {
                             SliceRow(slice: c, total: total, maxAmount: cats.first?.amount ?? 1,
-                                     previous: prevByCat[c.id], hasPrevious: ptotal > 0,
+                                     previous: prevByCat[c.id], hasPrevious: ptotal > 0, period: period,
                                      currency: currency, selected: selected == c.id, shown: shown)
                         }
                         .buttonStyle(.plain)
 
                         if selected == c.id {
                             groupDetail(current.filter { $0.category == c.group })
-                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .transition(.opacity)
                         }
                     }
                 }
@@ -264,7 +241,7 @@ struct StatsView: View {
     private func peopleCard(current: [SpendItem], previous: [SpendItem], total: Double) -> some View {
         let people = Stats.people(current)
         if !people.isEmpty {
-            let prev = Dictionary(uniqueKeysWithValues: Stats.people(previous).map { ($0.name, $0.amount) })
+            let prevList = Stats.people(previous)
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle(text: "Вместе")
                 ForEach(people) { p in
@@ -273,12 +250,13 @@ struct StatsView: View {
                         Button {
                             withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { openPerson = isOpen ? nil : p.name }
                         } label: {
-                            PersonRow(person: p, total: total, previous: prev[p.name], currency: currency)
+                            PersonRow(person: p, total: total, previous: prevList.first { $0.name == p.name }?.amount,
+                                      period: period, currency: currency)
                         }
                         .buttonStyle(.plain)
                         if isOpen {
                             groupDetail(current.filter { $0.people.contains(p.name) })
-                                .transition(.opacity.combined(with: .move(edge: .top)))
+                                .transition(.opacity)
                         }
                     }
                 }
@@ -293,7 +271,6 @@ struct StatsView: View {
         let elapsed = days.filter { $0.date <= Date() }
         let avg = elapsed.isEmpty ? 0 : elapsed.reduce(0) { $0 + $1.total } / Double(elapsed.count)
         let peak = days.max { $0.total < $1.total }
-        let labelFormat: Date.FormatStyle = period == .week ? .dateTime.weekday(.abbreviated) : .dateTime.day()
         let tip: String = {
             if let d = selectedDay, let t = days.first(where: { RuDate.cal.isDate($0.date, inSameDayAs: d) }) {
                 return "\(RuDate.dayLabel(t.date)): \(Money.format(t.total, currency))"
@@ -308,40 +285,13 @@ struct StatsView: View {
                 Spacer()
                 Text(tip).font(.caption).foregroundStyle(Color.muted).lineLimit(1).minimumScaleFactor(0.8)
             }
-            Chart {
-                ForEach(days) { d in
-                    BarMark(x: .value("День", d.date, unit: .day),
-                            y: .value("Сумма", shown ? d.total : 0),
-                            width: .ratio(0.62))
-                        .cornerRadius(4)
-                        .foregroundStyle(d.isToday ? Color.warm : Color.ink.opacity(isSelected(d) ? 0.5 : 0.18))
-                }
-                if avg > 0 {
-                    RuleMark(y: .value("Среднее", avg))
-                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 4]))
-                        .foregroundStyle(Color.muted)
-                        .annotation(position: .top, alignment: .trailing) {
-                            Text("среднее \(Money.format(avg, currency))")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(Color.muted)
-                        }
-                }
-            }
-            .chartYAxis(.hidden)
-            .chartXAxis {
-                AxisMarks(values: .stride(by: .day, count: period == .week ? 1 : 5)) { _ in
-                    AxisValueLabel(format: labelFormat, centered: true)
-                }
-            }
-            .chartXSelection(value: $selectedDay)
-            .frame(height: 170)
+            DayBars(days: days, period: period, average: avg, currency: currency, shown: shown, selected: $selectedDay)
+                .frame(height: 170)
+            Text("Нажми на столбик, чтобы увидеть сумму за день")
+                .font(.caption2)
+                .foregroundStyle(Color.faint)
         }
         .card()
-    }
-
-    private func isSelected(_ d: DayTotal) -> Bool {
-        guard let s = selectedDay else { return false }
-        return RuDate.cal.isDate(d.date, inSameDayAs: s)
     }
 
     // MARK: insights
@@ -361,7 +311,7 @@ struct StatsView: View {
                         .foregroundStyle(ins.color)
                         .frame(width: 30, height: 30)
                         .background(Color.surface2, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    Text(LocalizedStringKey(ins.text))
+                    Text(Self.markdown(ins.text))
                         .font(.subheadline)
                         .foregroundStyle(Color.ink)
                         .fixedSize(horizontal: false, vertical: true)
@@ -390,10 +340,14 @@ struct StatsView: View {
                     .foregroundStyle(Color.ink)
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .card()
+    }
+
+    /// Bold parts without treating the text as a localization key
+    static func markdown(_ s: String) -> AttributedString {
+        (try? AttributedString(markdown: s)) ?? AttributedString(s)
     }
 
     // MARK: actions
@@ -416,7 +370,6 @@ struct StatsView: View {
         selected = nil
         openPerson = nil
         selectedDay = nil
-        angle = nil
         advice = nil
     }
 
@@ -434,27 +387,129 @@ struct StatsView: View {
     }
 }
 
+// MARK: - Light hand-drawn charts (no gestures inside, nothing to crash)
+
+struct Donut: View {
+    let slices: [Slice]
+    let selected: String?
+    let shown: Bool
+
+    private struct Arc: Identifiable {
+        let slice: Slice
+        let from: Double
+        let to: Double
+        var id: String { slice.id }
+    }
+
+    private var arcs: [Arc] {
+        let total = slices.reduce(0) { $0 + $1.amount }
+        guard total > 0 else { return [] }
+        let gap = slices.count > 1 ? 0.006 : 0
+        var start = 0.0
+        var out: [Arc] = []
+        for s in slices {
+            let end = start + s.amount / total
+            let from = min(start + gap / 2, end)
+            out.append(Arc(slice: s, from: from, to: max(from, end - gap / 2)))
+            start = end
+        }
+        return out
+    }
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Color.surface2, lineWidth: 20)
+            ForEach(arcs) { arc in
+                Circle()
+                    .trim(from: arc.from, to: shown ? arc.to : arc.from)
+                    .stroke(arc.slice.color, style: StrokeStyle(lineWidth: selected == arc.id ? 28 : 20, lineCap: .butt))
+                    .opacity(selected == nil || selected == arc.id ? 1 : 0.3)
+                    .animation(.spring(response: 0.9, dampingFraction: 0.85), value: shown)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selected)
+            }
+        }
+        .rotationEffect(.degrees(-90))
+        .padding(14)
+    }
+}
+
+struct DayBars: View {
+    let days: [DayTotal]
+    let period: Period
+    let average: Double
+    let currency: String
+    let shown: Bool
+    @Binding var selected: Date?
+
+    var body: some View {
+        let maxValue = max(days.map(\.total).max() ?? 0, 1)
+        GeometryReader { geo in
+            let labelH: CGFloat = 16
+            let h = max(1, geo.size.height - labelH - 4)
+            ZStack(alignment: .topLeading) {
+                HStack(alignment: .bottom, spacing: days.count > 10 ? 2 : 8) {
+                    ForEach(days) { d in
+                        let isSel = selected.map { RuDate.cal.isDate($0, inSameDayAs: d.date) } ?? false
+                        VStack(spacing: 4) {
+                            Spacer(minLength: 0)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(d.isToday ? Color.warm : Color.ink.opacity(isSel ? 0.55 : 0.18))
+                                .frame(height: max(2, h * CGFloat(shown ? d.total / maxValue : 0)))
+                            Text(label(d))
+                                .font(.system(size: 9, design: .monospaced))
+                                .foregroundStyle(Color.muted)
+                                .lineLimit(1)
+                                .fixedSize()
+                                .frame(height: labelH)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture { selected = isSel ? nil : d.date }
+                    }
+                }
+                .animation(.spring(response: 0.8, dampingFraction: 0.85), value: shown)
+
+                if average > 0 {
+                    let y = h - h * CGFloat(min(1, average / maxValue))
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: y))
+                        p.addLine(to: CGPoint(x: geo.size.width, y: y))
+                    }
+                    .stroke(Color.muted, style: StrokeStyle(lineWidth: 1, dash: [3, 4]))
+                    .allowsHitTesting(false)
+                    Text("среднее \(Money.format(average, currency))")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(Color.muted)
+                        .padding(.horizontal, 4)
+                        .background(Color.surface)
+                        .offset(x: max(0, geo.size.width - 150), y: max(0, y - 16))
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    private func label(_ d: DayTotal) -> String {
+        let p = RuDate.parts(d.date)
+        if period == .week { return RuDate.weekdaysShort[p.weekday] }
+        return (p.day == 1 || p.day % 5 == 0 || d.isToday) ? "\(p.day)" : ""
+    }
+}
+
 struct SliceRow: View {
     let slice: Slice
     let total: Double
     let maxAmount: Double
     let previous: Double?
     let hasPrevious: Bool
+    let period: Period
     let currency: String
     let selected: Bool
     let shown: Bool
 
     var body: some View {
         let share = total > 0 ? Int((slice.amount / total * 100).rounded()) : 0
-        let delta: (String, Color) = {
-            if let p = previous, p > 0 {
-                let ch = (slice.amount - p) / p
-                if abs(ch) < 0.05 { return ("без изменений", Color.faint) }
-                let diff = Money.format(abs(slice.amount - p), currency)
-                return (ch > 0 ? "+\(diff)" : "−\(diff)", ch > 0 ? Color.bad : Color.good)
-            }
-            return hasPrevious ? ("новое", Color.warn) : ("", Color.faint)
-        }()
+        let delta = Self.delta(slice.amount, previous: previous, hasPrevious: hasPrevious, period: period, currency: currency)
 
         VStack(spacing: 8) {
             HStack(spacing: 12) {
@@ -466,14 +521,17 @@ struct SliceRow: View {
                 Spacer(minLength: 6)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Money.format(slice.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
-                    if !delta.0.isEmpty { Text(delta.0).font(.caption).monospacedDigit().foregroundStyle(delta.1) }
+                    if !delta.0.isEmpty {
+                        Text(delta.0).font(.caption2).monospacedDigit().foregroundStyle(delta.1)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
                 }
             }
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.surface2)
                     Capsule().fill(slice.color)
-                        .frame(width: geo.size.width * (shown ? slice.amount / max(maxAmount, 0.01) : 0))
+                        .frame(width: geo.size.width * CGFloat(shown ? slice.amount / max(maxAmount, 0.01) : 0))
                 }
             }
             .frame(height: 5)
@@ -483,16 +541,28 @@ struct SliceRow: View {
         .background(selected ? Color.surface2.opacity(0.6) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
     }
+
+    /// "↑ 505 ₽ к прошлой неделе" instead of a bare "+505"
+    static func delta(_ amount: Double, previous: Double?, hasPrevious: Bool, period: Period, currency: String) -> (String, Color) {
+        if let p = previous, p > 0 {
+            let diff = amount - p
+            if abs(diff) < max(1, p * 0.05) { return ("как по \(period.prevPhrase)", Color.faint) }
+            return ("\(diff > 0 ? "↑" : "↓") \(Money.format(abs(diff), currency)) к \(period.prevPhrase)", diff > 0 ? Color.bad : Color.good)
+        }
+        return hasPrevious ? ("раньше не было", Color.faint) : ("", Color.faint)
+    }
 }
 
 struct PersonRow: View {
     let person: PersonTotal
     let total: Double
     let previous: Double?
+    let period: Period
     let currency: String
 
     var body: some View {
         let share = total > 0 ? Int((person.amount / total * 100).rounded()) : 0
+        let delta = SliceRow.delta(person.amount, previous: previous, hasPrevious: false, period: period, currency: currency)
         HStack(spacing: 12) {
             ItemIcon(symbol: "heart.fill", color: Color(hue: 0.95, saturation: 0.45, brightness: 0.88))
             VStack(alignment: .leading, spacing: 2) {
@@ -502,11 +572,8 @@ struct PersonRow: View {
             Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(Money.format(person.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
-                if let p = previous, p > 0, abs(person.amount - p) > person.amount * 0.05 {
-                    let diff = person.amount - p
-                    Text((diff > 0 ? "+" : "−") + Money.format(abs(diff), currency))
-                        .font(.caption).monospacedDigit()
-                        .foregroundStyle(diff > 0 ? Color.bad : Color.good)
+                if !delta.0.isEmpty {
+                    Text(delta.0).font(.caption2).monospacedDigit().foregroundStyle(delta.1).lineLimit(1).minimumScaleFactor(0.8)
                 }
             }
         }

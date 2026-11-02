@@ -68,8 +68,18 @@ struct RootView: View {
                 app.showToast("Исправил категорию у \(fixed) \(plural(fixed, "записи", "записей", "записей"))")
             }
         }
+        .onOpenURL { app.open($0) }
+        .task(id: widgetKey(real)) {
+            if !isDemo { WidgetSync.update(items: real, currency: currency) }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { app.motion.start() } else { app.motion.stop() }
         }
+    }
+
+    /// Changes whenever the widget's numbers could change
+    private func widgetKey(_ items: [SpendItem]) -> String {
+        let sum = items.reduce(0) { $0 + $1.amount }
+        return "\(items.count)|\(Int(sum * 100))|\(currency)|\(RuDate.iso(Date()))"
     }
 }
