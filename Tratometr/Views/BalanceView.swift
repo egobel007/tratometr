@@ -15,6 +15,7 @@ struct BalanceView: View {
     @State private var period: BalancePeriod = .month
     @State private var offset = 0
     @State private var editing: Expense?
+    @State private var openSource: IncomeSource?
 
     var body: some View {
         let sp = spends.filter { $0.currency == currency }
@@ -185,55 +186,78 @@ struct BalanceView: View {
             .map { SourceGroup(source: $0.key, items: $0.value, amount: Stats.total($0.value)) }
             .sorted { $0.amount > $1.amount }
         if !groups.isEmpty {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 SectionTitle(text: "Откуда пришло")
                 ForEach(groups) { g in
-                    let subs = Flow.bySource(g.items)
-                    let showSubs = subs.count > 1 || subs.first.map { !$0.sub.isEmpty } == true
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 12) {
-                            ItemIcon(symbol: g.source.symbol, color: g.source.color)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(g.source.name).font(.body.weight(.medium)).foregroundStyle(Color.ink)
-                                Text("\(g.items.count) \(plural(g.items.count, "поступление", "поступления", "поступлений")) · \(total > 0 ? Int((g.amount / total * 100).rounded()) : 0)%")
-                                    .font(.caption)
-                                    .foregroundStyle(Color.muted)
-                            }
-                            Spacer()
-                            Text("+" + Money.format(g.amount, currency))
-                                .font(.body.weight(.semibold))
-                                .monospacedDigit()
-                                .foregroundStyle(Color.good)
-                        }
-                        if showSubs {
-                            VStack(spacing: 6) {
-                                ForEach(subs) { s in
-                                    HStack {
-                                        Circle().fill(g.source.color).frame(width: 6, height: 6)
-                                        Text(s.sub.isEmpty ? "Без уточнения" : s.sub)
-                                            .font(.subheadline)
-                                            .foregroundStyle(Color.ink)
-                                        Spacer()
-                                        Text("+" + Money.format(s.amount, currency))
-                                            .font(.subheadline)
-                                            .monospacedDigit()
-                                            .foregroundStyle(Color.muted)
-                                    }
+                    let isOpen = openSource == g.source
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button {
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) { openSource = isOpen ? nil : g.source }
+                        } label: {
+                            HStack(spacing: 12) {
+                                ItemIcon(symbol: g.source.symbol, color: g.source.color)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(g.source.name).font(.body.weight(.medium)).foregroundStyle(Color.ink)
+                                    Text("\(g.items.count) \(plural(g.items.count, "поступление", "поступления", "поступлений")) · \(total > 0 ? Int((g.amount / total * 100).rounded()) : 0)%")
+                                        .font(.caption)
+                                        .foregroundStyle(Color.muted)
                                 }
+                                Spacer()
+                                Text("+" + Money.format(g.amount, currency))
+                                    .font(.body.weight(.semibold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(Color.good)
+                                Image(systemName: "chevron.down")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Color.faint)
+                                    .rotationEffect(.degrees(isOpen ? 180 : 0))
                             }
-                            .padding(.leading, 54)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if isOpen {
+                            sourceDetail(g)
+                                .transition(.opacity)
                         }
                     }
-                    .padding(.vertical, 6)
-                }
-                Rectangle().fill(Color.line).frame(height: 1).padding(.vertical, 4)
-                ForEach(items.sorted { $0.date > $1.date }.prefix(12)) { item in
-                    Button { open(item) } label: { ExpenseRow(item: item) }
-                        .buttonStyle(.plain)
                 }
             }
             .card()
         }
+    }
+
+    /// Inside a source: what exactly it was, then the records
+    private func sourceDetail(_ g: SourceGroup) -> some View {
+        let subs = Flow.bySource(g.items)
+        let showSubs = subs.count > 1 || subs.first.map { !$0.sub.isEmpty } == true
+        return VStack(alignment: .leading, spacing: 0) {
+            if showSubs {
+                VStack(spacing: 8) {
+                    ForEach(subs) { s in
+                        HStack {
+                            Circle().fill(g.source.color).frame(width: 6, height: 6)
+                            Text(s.sub.isEmpty ? "Без уточнения" : s.sub)
+                                .font(.subheadline)
+                                .foregroundStyle(Color.ink)
+                            Spacer()
+                            Text("+" + Money.format(s.amount, currency))
+                                .font(.subheadline)
+                                .monospacedDigit()
+                                .foregroundStyle(Color.muted)
+                        }
+                    }
+                }
+                .padding(.vertical, 10)
+                Rectangle().fill(Color.line).frame(height: 1)
+            }
+            ForEach(g.items.sorted { $0.date > $1.date }) { item in
+                Button { open(item) } label: { ExpenseRow(item: item) }
+                    .buttonStyle(.plain)
+            }
+        }
+        .padding(.leading, 54)
     }
 
     private func open(_ item: SpendItem) {

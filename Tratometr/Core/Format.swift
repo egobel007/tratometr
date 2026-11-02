@@ -86,6 +86,16 @@ enum RuDate {
         return "\(p.day) \(monthsGen[p.month]), \(weekdaysShort[p.weekday])"
     }
 
+    /// "Сегодня, 2 ноября" · "Вчера, 1 ноября" · "30 октября, пятница" (+ year if not this year)
+    static func dayHeader(_ d: Date) -> String {
+        let p = parts(d)
+        let date = "\(p.day) \(monthsGen[p.month])" + (p.year != parts(Date()).year ? " \(p.year)" : "")
+        let diff = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: cal.startOfDay(for: Date())).day ?? 0
+        if diff == 0 { return "Сегодня, " + date }
+        if diff == 1 { return "Вчера, " + date }
+        return date + ", " + weekdays[p.weekday]
+    }
+
     static func headerToday() -> String {
         let p = parts(Date())
         return "\(weekdays[p.weekday]), \(p.day) \(monthsGen[p.month])"

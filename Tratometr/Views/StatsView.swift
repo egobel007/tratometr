@@ -509,7 +509,6 @@ struct SliceRow: View {
 
     var body: some View {
         let share = total > 0 ? Int((slice.amount / total * 100).rounded()) : 0
-        let delta = Self.delta(slice.amount, previous: previous, hasPrevious: hasPrevious, period: period, currency: currency)
 
         VStack(spacing: 8) {
             HStack(spacing: 12) {
@@ -521,10 +520,6 @@ struct SliceRow: View {
                 Spacer(minLength: 6)
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(Money.format(slice.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
-                    if !delta.0.isEmpty {
-                        Text(delta.0).font(.caption2).monospacedDigit().foregroundStyle(delta.1)
-                            .lineLimit(1).minimumScaleFactor(0.8)
-                    }
                 }
             }
             GeometryReader { geo in
@@ -562,7 +557,6 @@ struct PersonRow: View {
 
     var body: some View {
         let share = total > 0 ? Int((person.amount / total * 100).rounded()) : 0
-        let delta = SliceRow.delta(person.amount, previous: previous, hasPrevious: false, period: period, currency: currency)
         HStack(spacing: 12) {
             ItemIcon(symbol: "heart.fill", color: Color(hue: 0.95, saturation: 0.45, brightness: 0.88))
             VStack(alignment: .leading, spacing: 2) {
@@ -572,9 +566,6 @@ struct PersonRow: View {
             Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 2) {
                 Text(Money.format(person.amount, currency)).font(.body.weight(.semibold)).monospacedDigit().foregroundStyle(Color.ink)
-                if !delta.0.isEmpty {
-                    Text(delta.0).font(.caption2).monospacedDigit().foregroundStyle(delta.1).lineLimit(1).minimumScaleFactor(0.8)
-                }
             }
         }
         .padding(8)

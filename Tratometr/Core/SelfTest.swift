@@ -161,6 +161,9 @@ enum SelfTest {
             draw(HomeView(spends: spends, incomes: incomes, isDemo: false), "главная")
             draw(HomeView(spends: [], incomes: [], isDemo: true), "главная пустая")
             draw(BalanceView(spends: spends, incomes: incomes, isDemo: false), "баланс")
+            check(RuDate.dayHeader(Date()).hasPrefix("Сегодня, "), "шапка дня: \(RuDate.dayHeader(Date()))")
+            let older = RuDate.cal.date(byAdding: .day, value: -5, to: Date())!
+            check(RuDate.dayHeader(older).contains(","), "шапка дня: \(RuDate.dayHeader(older))")
             draw(HistoryView(items: demo, isDemo: false), "история")
             WidgetSync.update(items: demo, currency: "RUB")
             check(true, "данные для виджета записаны")

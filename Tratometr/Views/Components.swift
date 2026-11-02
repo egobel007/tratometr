@@ -68,7 +68,7 @@ struct DayHeader: View {
     let currency: String
 
     var body: some View {
-        Text(RuDate.dayLabel(group.day))
+        Text(RuDate.dayHeader(group.day))
             .font(.subheadline.weight(.semibold))
             .foregroundStyle(Color.ink)
             .frame(maxWidth: .infinity, alignment: .leading)
