@@ -62,24 +62,17 @@ struct ExpenseRow: View {
     }
 }
 
-/// "Сегодня   +40 000 ₽  −1 250 ₽"
+/// Just the day: "Сегодня", "Вчера", "29 октября, ср"
 struct DayHeader: View {
     let group: DayGroup
     let currency: String
 
     var body: some View {
-        let main = group.items.filter { $0.currency == currency }
-        let spent = Stats.total(main.filter { !$0.isIncome })
-        let came = Stats.total(main.filter { $0.isIncome })
-        HStack(spacing: 8) {
-            Text(RuDate.dayLabel(group.day)).font(.subheadline.weight(.semibold)).foregroundStyle(Color.ink)
-            Spacer()
-            if came > 0 { Text("+" + Money.format(came, currency)).foregroundStyle(Color.good) }
-            if spent > 0 { Text("−" + Money.format(spent, currency)).foregroundStyle(Color.muted) }
-        }
-        .font(.subheadline)
-        .monospacedDigit()
-        .textCase(nil)
+        Text(RuDate.dayLabel(group.day))
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Color.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .textCase(nil)
     }
 }
 
